@@ -1,0 +1,8 @@
+# Local development helpers only (no hosting/deployment). Used from Phase 6 (Celery/email).
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports: ["1025:1025", "8025:8025"]   # SMTP / web UI

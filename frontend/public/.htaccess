@@ -1,0 +1,12 @@
+# SPA: open any page address directly (e.g. /login, /tasks/5) and keep the file-based assets as they are
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /index.html [L]
+</IfModule>
+<IfModule mod_headers.c>
+<FilesMatch "^(index\.html|config\.js)$">
+Header set Cache-Control "no-cache, no-store, must-revalidate"
+</FilesMatch>
+</IfModule>

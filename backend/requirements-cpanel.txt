@@ -1,0 +1,17 @@
+# Runtime dependencies for cPanel (Python 3.12, Passenger/WSGI). No uvicorn, no websockets: nothing runs a server process.
+# pip install -r requirements-cpanel.txt
+a2wsgi==1.10.10
+alembic==1.20.1
+argon2-cffi==25.1.0
+cryptography==50.0.2
+email-validator==2.4.0
+fastapi==0.163.1
+openpyxl==3.1.5
+pydantic==2.14.3
+pydantic-settings==2.16.3
+pyjwt==2.15.1
+pymysql==1.2.4
+python-dotenv==1.2.4
+python-multipart==0.0.34
+sqlalchemy==2.1.9
+tzdata==2026.6
