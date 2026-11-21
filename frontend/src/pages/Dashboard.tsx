@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type DelayQueue, type TaskPage, type Workload } from "@/components/task-ui";
 import { OverviewPanel } from "@/components/Overview";
@@ -10,13 +10,70 @@ import { useAuth } from "@/lib/auth";
 /** Employee-first "My Day". People who assign work also get a short "needs your attention" list. */
 export function Dashboard() {
   const { me, can } = useAuth();
+  const [params, setParams] = useSearchParams();
   const name = me?.employee?.full_name ?? me?.user.email;
+  const isOwner = Boolean(me?.roles?.includes("owner"));
+
+  // Admin has no task permissions, so Admin always sees AdminDashboard
   if (!can("task.view")) {
     return <AdminDashboard name={name} />;
   }
+
+  const activePanel = params.get("panel") || "owner";
+
+  if (isOwner && activePanel === "admin") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setParams({ panel: "owner" })}
+              className="flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              <span>👑</span> Owner Executive Panel
+            </button>
+            <button
+              type="button"
+              onClick={() => setParams({ panel: "admin" })}
+              className="flex items-center gap-2 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm"
+            >
+              <span>⚙️</span> Admin Panel
+            </button>
+          </div>
+          <span className="text-xs font-medium text-slate-500">Highest authority: viewing System Administration</span>
+        </div>
+        <AdminDashboard name={name} />
+      </div>
+    );
+  }
+
   return (
     <>
-      <PageHeader title={`Welcome, ${name?.split(" ")[0]}`} subtitle="Here is what needs you today." />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PageHeader
+          title={`Welcome, ${name?.split(" ")[0]}`}
+          subtitle={isOwner ? "Owner Executive Overview & System Control" : "Here is what needs you today."}
+        />
+        {isOwner && (
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setParams({ panel: "owner" })}
+              className="flex items-center gap-2 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm"
+            >
+              <span>👑</span> Owner Executive Panel
+            </button>
+            <button
+              type="button"
+              onClick={() => setParams({ panel: "admin" })}
+              className="flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              <span>⚙️</span> Admin Panel
+            </button>
+          </div>
+        )}
+      </div>
       <div className="space-y-5">
         <ReviewWaiting />
         {can("task.assign") && <Attention />}

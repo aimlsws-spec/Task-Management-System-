@@ -150,7 +150,7 @@ def _assign_roles(db: Session, p: Principal, user: User, codes: list[str]) -> No
     if len(roles) != len(set(codes)):
         raise AppError("UNKNOWN_ROLE", "One or more roles do not exist", 422)
     for r in roles:
-        if r.rank > p.rank:
+        if r.rank > p.rank and "admin" not in p.roles and "owner" not in p.roles:
             raise Forbidden("You cannot grant a role above your own rank")
     db.query(UserRole).filter(UserRole.user_id == user.id).delete()
     for r in roles:

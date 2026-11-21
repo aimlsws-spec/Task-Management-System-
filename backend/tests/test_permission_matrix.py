@@ -11,8 +11,8 @@ import pytest
 API = "/api/v1"
 # one demo user per role
 ALL = {"admin", "owner", "ceo", "manager", "devhead", "abc"}
-ADMIN = {"admin"}
-AUDIT = {"admin"}  # Owner and CEO do not get the audit log (ADR 002)
+ADMIN = {"admin", "owner"}  # Owner has full system access and all Admin capabilities
+AUDIT = {"admin", "owner"}  # Owner can view audit log
 WORK = {"owner", "ceo", "manager", "devhead", "abc"}  # task.view: everyone except the Admin
 ASSIGNERS = {"owner", "ceo", "manager", "devhead"}  # task.create + task.assign (employees and Admin cannot)
 
@@ -189,8 +189,10 @@ def test_admin_holds_all_org_setup_and_no_task_authority(client, as_user):
     assert not {c for c in p if c.startswith(("task.", "time.", "delay.", "blocker.", "report."))}  # setup only
 
 
-def test_org_setup_is_held_by_admin_alone(client, as_user):
-    for who in ("owner", "ceo", "manager", "devhead", "abc"):
+def test_org_setup_is_held_by_admin_and_owner(client, as_user):
+    assert ORG_SETUP <= set(perms(client, as_user, "admin"))
+    assert ORG_SETUP <= set(perms(client, as_user, "owner"))
+    for who in ("ceo", "manager", "devhead", "abc"):
         assert not ORG_SETUP & set(perms(client, as_user, who)), who
 
 
@@ -198,7 +200,8 @@ def test_owner_and_ceo_keep_full_work_authority(client, as_user):
     for who in ("owner", "ceo"):
         p = perms(client, as_user, who)
         assert {"task.create", "task.assign", "task.deadline.edit", "task.verify", "delay.review"} <= set(p)
-        assert "audit.view" not in p  # ADR 002
+    assert "audit.view" in perms(client, as_user, "owner")
+    assert "audit.view" not in perms(client, as_user, "ceo")
 
 
 def test_employees_have_no_management_permissions(client, as_user):

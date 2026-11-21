@@ -283,9 +283,11 @@ def test_admin_can_run_the_guard_on_demand(client, as_user, seeded):
     t = make(client, as_user, seeded)
     ok(client, as_user, "abc", t["id"], "start")
     at(12 * 60)
-    assert client.post(f"{API}/admin/jobs/timer-guard", headers=as_user("owner")).status_code == 403
+    assert client.post(f"{API}/admin/jobs/timer-guard", headers=as_user("ceo")).status_code == 403
     r = client.post(f"{API}/admin/jobs/timer-guard", headers=as_user("admin"))
     assert r.status_code == 200 and r.json()["auto_closed"] == 1
+    r2 = client.post(f"{API}/admin/jobs/timer-guard", headers=as_user("owner"))
+    assert r2.status_code == 200 and r2.json()["auto_closed"] == 0
 
 
 # ---------------------------------------------------------------- missing time and corrections

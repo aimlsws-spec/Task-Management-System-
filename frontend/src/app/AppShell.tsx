@@ -22,7 +22,13 @@ function useNav() {
   if (can("report.view")) main.push({ to: "/reports", label: "Reports", icon: BarChart3 });
 
   const admin: Item[] = [];
-  if (can("employee.manage")) admin.push({ to: "/employees", label: "Employees", icon: Users });
+  if (can("employee.manage")) {
+    // Users with task access (such as Owner) have Owner Panel as main dashboard, so provide Admin Panel link here
+    if (can("task.view")) {
+      admin.push({ to: "/admin", label: "Admin Panel", icon: LayoutDashboard });
+    }
+    admin.push({ to: "/employees", label: "Employees", icon: Users });
+  }
   if (can("employee.manage")) admin.push({ to: "/role-emails", label: "Role emails", icon: MailCheck });
   if (can("department.manage")) admin.push({ to: "/departments", label: "Departments", icon: Building2 });
   if (can("role.manage")) admin.push({ to: "/roles", label: "Roles & Permissions", icon: ShieldCheck });

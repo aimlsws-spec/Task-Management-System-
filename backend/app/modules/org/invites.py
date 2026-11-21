@@ -44,7 +44,7 @@ def create_invite(db: Session, p: Principal, email: str, role_code: str, request
     role = db.scalar(select(Role).where(Role.code == role_code))
     if role is None or role.code == "admin":  # Admin accounts are only ever created by bootstrap-admin
         raise AppError("INVALID_ROLE", "Choose Owner, CEO, Manager, Department Head or Employee", 422)
-    if role.rank > p.rank:
+    if role.rank > p.rank and "admin" not in p.roles and "owner" not in p.roles:
         raise Forbidden("You cannot grant a role above your own rank")
     if db.scalar(select(RoleInvite.id).where(RoleInvite.email == email)):
         raise Conflict("INVITE_EXISTS", "This email already has a role registered")

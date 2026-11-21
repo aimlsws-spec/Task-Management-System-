@@ -22,6 +22,7 @@ import { Roles } from "@/pages/Roles";
 import { RoleEmails } from "@/pages/RoleEmails";
 import { ReportsPage } from "@/pages/Reports";
 import { AuditLogPage } from "@/pages/AuditLog";
+import { AdminPanel } from "@/pages/AdminPanel";
 import { Signup } from "@/pages/Signup";
 import { AppShell } from "./AppShell";
 
@@ -61,7 +62,8 @@ export function App() {
           <Route path="audit" element={<Protected perm="audit.view"><AuditLogPage /></Protected>} />
           <Route path="projects" element={<Protected perm="task.view"><Projects /></Protected>} />
           <Route path="projects/:id" element={<Protected perm="task.view"><ProjectDetail /></Protected>} />
-          {/* Administration (Admin role only; the API enforces this too) */}
+          {/* Administration (Admin and Owner access; API enforces permissions) */}
+          <Route path="admin" element={<Protected perm="employee.manage"><AdminPanel /></Protected>} />
           <Route path="employees" element={<Protected perm="employee.view"><Employees /></Protected>} />
           <Route path="departments" element={<Protected perm="department.manage"><Departments /></Protected>} />
           <Route path="role-emails" element={<Protected perm="employee.manage"><RoleEmails /></Protected>} />

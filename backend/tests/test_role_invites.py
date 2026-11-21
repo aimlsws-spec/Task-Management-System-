@@ -106,12 +106,17 @@ def test_claimed_invite_cannot_be_deleted(client, as_user):
     assert client.delete(f"{API}/role-invites/{iid}", headers=as_user("admin")).status_code == 409
 
 
-@pytest.mark.parametrize("who", ["owner", "ceo", "manager", "devhead", "abc"])
-def test_only_the_admin_manages_role_emails(client, as_user, who):
+@pytest.mark.parametrize("who", ["ceo", "manager", "devhead", "abc"])
+def test_only_admin_and_owner_manage_role_emails(client, as_user, who):
     h = as_user(who)
     assert client.get(f"{API}/role-invites", headers=h).status_code == 403
     assert invite(client, as_user, "x@company.example", "ceo", who=who).status_code == 403
     assert client.delete(f"{API}/role-invites/1", headers=h).status_code == 403
+
+
+def test_owner_can_manage_role_emails(client, as_user):
+    h = as_user("owner")
+    assert client.get(f"{API}/role-invites", headers=h).status_code == 200
 
 
 # ---------- department heads ----------
@@ -158,15 +163,15 @@ def test_naming_a_manager_as_head_does_not_downgrade_them(client, as_user, seede
     assert "manager" in roles_of(client, as_user, mgr)
 
 
-# ---------- no audit log for Owner / CEO ----------
-@pytest.mark.parametrize("who", ["owner", "ceo"])
-def test_owner_and_ceo_have_no_audit_log(client, as_user, who):
-    assert "audit.view" not in me(client, as_user(who))["permissions"]
-    assert client.get(f"{API}/admin/audit-logs", headers=as_user(who)).status_code == 403
+# ---------- audit log: Admin and Owner have it, CEO does not ----------
+def test_ceo_has_no_audit_log(client, as_user):
+    assert "audit.view" not in me(client, as_user("ceo"))["permissions"]
+    assert client.get(f"{API}/admin/audit-logs", headers=as_user("ceo")).status_code == 403
 
 
-def test_admin_still_has_the_audit_log(client, as_user):
+def test_admin_and_owner_have_the_audit_log(client, as_user):
     assert client.get(f"{API}/admin/audit-logs", headers=as_user("admin")).status_code == 200
+    assert client.get(f"{API}/admin/audit-logs", headers=as_user("owner")).status_code == 200
 
 
 # ---------- emails ----------
@@ -271,5 +276,6 @@ def test_an_invitation_can_be_sent_again_until_it_is_claimed(client, as_user, se
     assert len(emails(seeded, "boss@company.example")) == 2
     signup_login(client, "boss@company.example")
     assert client.post(f"{API}/role-invites/{iid}/resend", headers=as_user("admin")).status_code == 409
-    for who in ("owner", "abc"):
+    assert client.post(f"{API}/role-invites/{iid}/resend", headers=as_user("owner")).status_code == 409
+    for who in ("ceo", "abc"):
         assert client.post(f"{API}/role-invites/{iid}/resend", headers=as_user(who)).status_code == 403

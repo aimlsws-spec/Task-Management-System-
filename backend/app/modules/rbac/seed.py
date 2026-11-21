@@ -11,7 +11,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission
 log = logging.getLogger("tms.rbac")
 
 # Bump when the default matrix changes; system roles are then reset to the new defaults once.
-SEED_VERSION = 4  # v4: Owner and CEO no longer hold audit.view (ADR 002)
+SEED_VERSION = 5  # v5: Owner has full system access and all admin capabilities (rank 120)
 
 # code -> (category, description)
 PERMISSIONS: dict[str, tuple[str, str]] = {
@@ -54,8 +54,8 @@ ADMIN_ONLY = {
 
 # roles: code -> (name, rank, description)
 ROLES: dict[str, tuple[str, int, str]] = {
+    "owner": ("Owner", 120, "Highest business and system authority, full system access and all admin capabilities"),
     "admin": ("Admin", 110, "System administrator: organization setup only, no task authority"),
-    "owner": ("Owner", 100, "Highest business authority, organization-wide task control"),
     "ceo": ("CEO", 90, "Senior management, organization-wide visibility"),
     "manager": ("Manager", 70, "Supervises employees and department heads"),
     "department_head": ("Department Head", 50, "Runs a department"),
@@ -71,13 +71,14 @@ _MGMT_TASK = [
 ]  # fmt: skip
 
 
-# Held by the Admin alone, on top of the org-setup permissions: Owner and CEO do not see the audit log.
+# Held by the Admin and Owner: Owner has full system access; CEO does not see the audit log.
 ADMIN_ONLY_VIEW = {"audit.view"}
 
 
 def _matrix() -> dict[str, dict[str, str]]:
     org = "organization"
     work = {c: org for c in PERMISSIONS if c not in ADMIN_ONLY and c not in ADMIN_ONLY_VIEW}  # all work, no org setup, no audit log
+    owner = {c: org for c in PERMISSIONS}  # Owner holds ALL permissions across the entire system
     admin = {c: org for c in ADMIN_ONLY} | {"employee.view": org, "audit.view": org, "dashboard.view": "self"}
     manager = {c: "team" for c in _MGMT_TASK}
     head = {c: "department" for c in _MGMT_TASK}
@@ -88,7 +89,7 @@ def _matrix() -> dict[str, dict[str, str]]:
             "comment.create", "report.view", "report.export", "dashboard.view", "employee.view",
         )
     }  # fmt: skip
-    return {"admin": admin, "owner": work, "ceo": dict(work), "manager": manager, "department_head": head, "employee": employee}
+    return {"admin": admin, "owner": owner, "ceo": dict(work), "manager": manager, "department_head": head, "employee": employee}
 
 
 def seed_rbac(db: Session) -> None:
@@ -102,6 +103,10 @@ def seed_rbac(db: Session) -> None:
         if code not in roles:
             roles[code] = Role(code=code, name=name, rank=rank, description=desc, is_system=True)
             db.add(roles[code])
+        else:
+            roles[code].name = name
+            roles[code].rank = rank
+            roles[code].description = desc
     db.flush()
 
     row = db.get(SystemSetting, "rbac_seed_version")

@@ -54,7 +54,7 @@ def set_role_permissions(role_id: int, body: RolePermsIn, request: Request, p: P
     role = p.db.get(Role, role_id)
     if role is None:
         raise NotFound("Role")
-    if role.rank > p.rank:
+    if role.rank > p.rank and "admin" not in p.roles and "owner" not in p.roles:
         raise Forbidden("You cannot edit a role above your own rank")
     perms = {x.code: x for x in p.db.scalars(select(Permission))}
     for g in body.grants:
@@ -82,7 +82,7 @@ def set_user_roles(user_id: int, body: UserRolesIn, request: Request, p: Princip
     roles = p.db.scalars(select(Role).where(Role.code.in_(body.role_codes))).all()
     if len(roles) != len(set(body.role_codes)):
         raise AppError("UNKNOWN_ROLE", "One or more roles do not exist", 422)
-    if any(r.rank > p.rank for r in roles):
+    if any(r.rank > p.rank for r in roles) and "admin" not in p.roles and "owner" not in p.roles:
         raise Forbidden("You cannot grant a role above your own rank")
     before = [r for r in p.db.scalars(select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id))]
     p.db.query(UserRole).filter(UserRole.user_id == user.id).delete()
