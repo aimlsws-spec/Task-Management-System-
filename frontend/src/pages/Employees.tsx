@@ -201,7 +201,7 @@ function EditEmployee({ emp, depts, employees, isCeo, onClose, onDone }: { emp: 
   );
 }
 
-function CreateEmployee({ depts, employees, companies, isCeo, onDone }: { depts: Dept[]; employees: Employee[]; companies: Company[]; isCeo: boolean; onDone: () => void }) {
+export function CreateEmployee({ depts, employees, companies, isCeo, onDone }: { depts: Dept[]; employees: Employee[]; companies: Company[]; isCeo: boolean; onDone: () => void }) {
   const allowedRoles = useMemo(() => {
     if (isCeo) return ["employee", "sub_head", "department_head", "manager"];
     return ALL_ROLES;

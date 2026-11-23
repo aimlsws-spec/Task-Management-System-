@@ -12,10 +12,16 @@ type Item = { to: string; label: string; icon: LucideIcon };
 // Navigation is a UI convenience; the API enforces access on every call.
 function useNav() {
   const { me, can } = useAuth();
-  const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
+  const isOwner = Boolean(me?.roles.includes("owner"));
+  const isCEO = Boolean(me?.roles.includes("ceo"));
+  const isLeadership = isOwner || isCEO;
   const main: Item[] = [];
   // Dashboard is ALWAYS on top for Owner, CEO, and all users
-  main.push({ to: "/", label: "Dashboard", icon: LayoutDashboard });
+  main.push({
+    to: "/",
+    label: isOwner ? "Owner Panel" : isCEO ? "CEO Panel" : "Dashboard",
+    icon: LayoutDashboard,
+  });
   if (isLeadership) {
     main.push(
       { to: "/tasks/new", label: "Assign Task", icon: PlusCircle },
@@ -32,11 +38,10 @@ function useNav() {
   if (can("report.view")) main.push({ to: "/reports", label: "Reports", icon: BarChart3 });
 
   const admin: Item[] = [];
+  if (isOwner) {
+    admin.push({ to: "/admin", label: "Admin Panel", icon: LayoutDashboard });
+  }
   if (can("employee.manage")) {
-    // Users with task access (such as Owner) have Owner Panel as main dashboard, so provide Admin Panel link here
-    if (can("task.view")) {
-      admin.push({ to: "/admin", label: "Admin Panel", icon: LayoutDashboard });
-    }
     admin.push({ to: "/companies", label: "Companies", icon: Building2 });
     admin.push({ to: "/employees", label: "Employees", icon: Users });
   }

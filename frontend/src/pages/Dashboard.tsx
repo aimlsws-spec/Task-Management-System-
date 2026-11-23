@@ -1,22 +1,48 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Building2, FolderPlus, Network, PlusCircle, ShieldCheck, UserPlus, Users } from "lucide-react";
-import { Badge, Button, Card, PageHeader } from "@/components/ui";
+import { useMemo, useState } from "react";
+import { Badge, Button, Card, PageHeader, Select } from "@/components/ui";
 import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type DelayQueue, type TaskPage, type Workload } from "@/components/task-ui";
 import { OverviewPanel } from "@/components/Overview";
 import { AdminDashboard } from "@/components/AdminDashboard";
+import { OrgHierarchyTree } from "@/components/OrgHierarchyTree";
+import { CreateEmployee } from "@/pages/Employees";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+
+type Company = { id: number; name: string; code: string };
+type Dept = { id: number; name: string; code: string; company_id?: number; is_active: boolean };
 
 /** Employee-first "My Day". People who assign work also get a short "needs your attention" list. */
 export function Dashboard() {
   const { me, can } = useAuth();
+  const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const name = me?.employee?.full_name ?? me?.user.email;
   const isOwner = Boolean(me?.roles?.includes("owner"));
   const isCEO = Boolean(me?.roles?.includes("ceo"));
   const isAdmin = Boolean(me?.roles?.includes("admin"));
   const isLeadership = isOwner || isCEO;
+
+  const [showAddEmployee, setShowAddEmployee] = useState(false);
+  const [hierCompanyId, setHierCompanyId] = useState("");
+
+  const companiesQ = useQuery({ queryKey: ["companies"], queryFn: () => api<Company[]>("/companies"), enabled: isLeadership });
+  const deptsQ = useQuery({ queryKey: ["departments"], queryFn: () => api<Dept[]>("/departments"), enabled: isLeadership });
+  const empsQ = useQuery({
+    queryKey: ["employees", "leadership-summary"],
+    queryFn: () => api<{ items: any[]; total: number }>("/employees", { params: { page_size: 200 } }),
+    enabled: isLeadership,
+  });
+
+  const effectiveHierCompanyId = useMemo(() => {
+    if (hierCompanyId) return hierCompanyId;
+    if (companiesQ.data && companiesQ.data.length > 0) return String(companiesQ.data[0].id);
+    return "";
+  }, [hierCompanyId, companiesQ.data]);
+
+  const hierCidNum = effectiveHierCompanyId ? Number(effectiveHierCompanyId) : undefined;
 
   // Admin cannot access the Owner Panel and has no task authority, so Admin always sees AdminDashboard
   if ((isAdmin && !isOwner) || !can("task.view")) {
@@ -57,8 +83,19 @@ export function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader
           title={`Welcome, ${name?.split(" ")[0]}`}
-          subtitle={isOwner ? "Owner Executive Overview & System Control" : "Here is what needs you today."}
+          subtitle={
+            isOwner
+              ? "Owner Executive Overview & System Control"
+              : isCEO
+              ? "CEO Executive Overview & Company Management"
+              : "Here is what needs you today."
+          }
         />
+        {isCEO && !isOwner && (
+          <div className="inline-flex items-center gap-1.5 rounded-xl bg-purple-50 px-3.5 py-1.5 border border-purple-200 text-xs font-semibold text-purple-700 shadow-sm">
+            <span>💼</span> CEO Executive Panel
+          </div>
+        )}
         {isOwner && (
           <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80 shadow-inner">
             <button
@@ -264,6 +301,96 @@ export function Dashboard() {
                 </div>
               </Card>
             </div>
+
+            {/* Live Organization Hierarchy & Team Management Card */}
+            <Card className="p-5 border-slate-200/90 bg-white shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-sm">
+                    <Network size={19} />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">
+                      {isOwner ? "Organization Hierarchy & Team Management" : "Authorized Company Hierarchy & Team Management"}
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Hold and move any employee card to dynamically update reporting managers without reloading.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {companiesQ.data && companiesQ.data.length > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold uppercase text-slate-500">Company:</span>
+                      <Select
+                        value={effectiveHierCompanyId}
+                        onChange={(e) => setHierCompanyId(e.target.value)}
+                        className="text-xs font-medium py-1 w-44"
+                      >
+                        {companiesQ.data.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.code.toUpperCase()})
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
+
+                  {can("employee.manage") && (
+                    <Button
+                      onClick={() => setShowAddEmployee((v) => !v)}
+                      className="text-xs py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      <UserPlus size={14} className="mr-1.5" />
+                      {showAddEmployee ? "Close Form" : "Add Employee Directly"}
+                    </Button>
+                  )}
+
+                  {can("employee.manage") && (
+                    <Link
+                      to="/role-emails"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+                    >
+                      <span>✉️</span> Invite by Email
+                    </Link>
+                  )}
+
+                  <Link
+                    to="/hierarchy"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <Network size={14} /> Full Hierarchy →
+                  </Link>
+                </div>
+              </div>
+
+              {/* Collapsible Inline Add Employee Form */}
+              {showAddEmployee && (
+                <div className="pt-1">
+                  <CreateEmployee
+                    depts={deptsQ.data ?? []}
+                    employees={empsQ.data?.items ?? []}
+                    companies={companiesQ.data ?? []}
+                    isCeo={isCEO && !isOwner}
+                    onDone={() => {
+                      setShowAddEmployee(false);
+                      qc.invalidateQueries({ queryKey: ["employees"] });
+                      qc.invalidateQueries({ queryKey: ["hierarchy-tree"] });
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Interactive Org Hierarchy Tree with Drag & Drop */}
+              <OrgHierarchyTree
+                companyId={hierCidNum}
+                canManage={can("hierarchy.manage")}
+                compact={true}
+                showControls={true}
+                onAddEmployeeClick={() => setShowAddEmployee(true)}
+              />
+            </Card>
           </div>
         )}
         <ReviewWaiting />

@@ -11,7 +11,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission
 log = logging.getLogger("tms.rbac")
 
 # Bump when the default matrix changes; system roles are then reset to the new defaults once.
-SEED_VERSION = 9  # v9: notification.rules.manage is system admin only
+SEED_VERSION = 10  # v10: CEO holds employee.manage, hierarchy.manage, department.manage
 
 # code -> (category, description)
 PERMISSIONS: dict[str, tuple[str, str]] = {

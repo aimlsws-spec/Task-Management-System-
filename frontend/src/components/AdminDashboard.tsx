@@ -287,6 +287,43 @@ export function AdminDashboard({ name }: { name?: string }) {
         </div>
       </Card>
 
+      {/* Organization Hierarchy & Employee Management Card */}
+      <Card className="p-5 border border-indigo-100 bg-gradient-to-r from-indigo-50/40 via-white to-slate-50/30 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+              <Network size={22} />
+            </span>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Organization Hierarchy & Employee Management</h2>
+              <p className="text-xs text-slate-500">
+                Visual organization tree with interactive hold-and-move reporting reassignments and company scopes.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/employees?add=1"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+            >
+              <UserPlus size={14} /> Add Employee Directly
+            </Link>
+            <Link
+              to="/role-emails"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              <MailCheck size={14} /> Invite by Email
+            </Link>
+            <Link
+              to="/hierarchy"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3.5 py-2 text-xs font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50 transition-colors"
+            >
+              <Network size={14} /> Open Org Hierarchy (Hold & Drag) →
+            </Link>
+          </div>
+        </div>
+      </Card>
+
       {/* Two Column Layout: Setup & Invites vs Recent Activity */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left Column: Organization Setup & Pending Invites */}
