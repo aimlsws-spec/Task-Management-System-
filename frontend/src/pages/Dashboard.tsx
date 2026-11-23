@@ -15,10 +15,11 @@ export function Dashboard() {
   const name = me?.employee?.full_name ?? me?.user.email;
   const isOwner = Boolean(me?.roles?.includes("owner"));
   const isCEO = Boolean(me?.roles?.includes("ceo"));
+  const isAdmin = Boolean(me?.roles?.includes("admin"));
   const isLeadership = isOwner || isCEO;
 
-  // Admin has no task permissions, so Admin always sees AdminDashboard
-  if (!can("task.view")) {
+  // Admin cannot access the Owner Panel and has no task authority, so Admin always sees AdminDashboard
+  if ((isAdmin && !isOwner) || !can("task.view")) {
     return <AdminDashboard name={name} />;
   }
 

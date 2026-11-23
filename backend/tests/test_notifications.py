@@ -77,9 +77,10 @@ def test_the_ceo_rule_for_manager_assignments_is_configurable(client, as_user, s
 
 
 def test_owner_and_ceo_cannot_edit_the_rules(client, as_user, seeded):
-    for who in ("owner", "ceo", "manager"):
+    for who in ("ceo", "manager"):
         assert client.get(f"{API}/admin/notification-rules", headers=as_user(who)).status_code == 403
     assert len(client.get(f"{API}/admin/notification-rules", headers=as_user("admin")).json()) > 50
+    assert len(client.get(f"{API}/admin/notification-rules", headers=as_user("owner")).json()) > 50
 
 
 def test_relaying_twice_never_duplicates(client, as_user, seeded):

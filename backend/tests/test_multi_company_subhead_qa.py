@@ -435,3 +435,207 @@ def test_ceo_hierarchy_scope_restrictions(client, as_user, seeded):
     })
     assert r_mgr_ok.status_code == 204
 
+
+def test_owner_creates_company_and_appoints_ceo_with_invitation(client, as_user, seeded):
+    # 1. Owner creates company and appoints CEO with invitation email
+    r = client.post(f"{API}/companies", headers=as_user("owner"), json={
+        "name": "Nova Tech",
+        "code": "NOVA",
+        "ceo_email": "appointed_ceo@novatech.com",
+    })
+    assert r.status_code == 201
+    comp_id = r.json()["id"]
+
+    # Verify CEO invite was generated with activation link queued
+    with seeded() as s:
+        from app.modules.org.models import RoleInvite
+        from app.modules.notifications.models import EmailLog
+        inv = s.query(RoleInvite).filter(RoleInvite.email == "appointed_ceo@novatech.com").first()
+        assert inv is not None
+        assert inv.company_id == comp_id
+
+        # Verify invitation email log
+        email = s.query(EmailLog).filter(EmailLog.to_email == "appointed_ceo@novatech.com").first()
+        assert email is not None
+        assert "CEO" in email.subject
+        assert "/signup" in email.body_text
+
+    # 2. Owner can also invite CEO via assign_company_ceo endpoint for an un-registered email
+    r_assign = client.post(f"{API}/companies/{comp_id}/ceos", headers=as_user("owner"), json={
+        "email": "second_ceo@novatech.com"
+    })
+    assert r_assign.status_code == 201
+    with seeded() as s:
+        from app.modules.org.models import RoleInvite
+        inv2 = s.query(RoleInvite).filter(RoleInvite.email == "second_ceo@novatech.com").first()
+        assert inv2 is not None
+        assert inv2.company_id == comp_id
+
+
+def test_ceo_completes_task_and_submits_to_owner(client, as_user, seeded):
+    fe_id = eid(seeded, FE)
+
+    # 1. Owner creates task assigned to FE
+    r_task = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Build Integration Service",
+        "description": "Critical backend integration service",
+        "assignee_id": fe_id,
+        "due_date": (date.today() + timedelta(days=5)).isoformat(),
+        "priority": "high",
+    })
+    assert r_task.status_code == 201
+    task_id = r_task.json()["task"]["id"]
+
+    # 2. Check CEO allowed actions includes submit_to_owner
+    t_ceo_view = client.get(f"{API}/tasks/{task_id}", headers=as_user("ceo")).json()
+    assert "submit_to_owner" in t_ceo_view["allowed_actions"]
+
+    # 3. CEO completes the task and submits directly to Owner
+    r_sub = client.post(f"{API}/tasks/{task_id}/submit-to-owner", headers=as_user("ceo"), json={
+        "summary": "Completed service integration directly; verified all endpoints.",
+        "tested": True,
+    })
+    assert r_sub.status_code == 200
+    t_after = r_sub.json()
+    assert t_after["status"] == "under_review"
+    assert t_after["review_stage"] == "leadership"
+    assert t_after["progress_pct"] == 100
+
+    # 4. Owner reviews and approves task
+    r_rev = client.post(f"{API}/tasks/{task_id}/review", headers=as_user("owner"), json={
+        "decision": "approve",
+        "comment": "Approved by Owner. Looks solid.",
+    })
+    assert r_rev.status_code == 200
+    t_done = r_rev.json()
+    assert t_done["status"] == "completed"
+    assert t_done["verified_at"] is not None
+
+
+def test_admin_management_scope_and_task_restrictions(client, as_user, seeded):
+    fe_id = eid(seeded, FE)
+
+    # 1. Admin can access system management resources across all companies
+    comps = client.get(f"{API}/companies", headers=as_user("admin"))
+    assert comps.status_code == 200
+    depts = client.get(f"{API}/departments", headers=as_user("admin"))
+    assert depts.status_code == 200
+    emps = client.get(f"{API}/employees", headers=as_user("admin"))
+    assert emps.status_code == 200
+
+    # 2. Admin CANNOT create tasks or projects
+    r_task_create = client.post(f"{API}/tasks", headers=as_user("admin"), json={
+        "title": "Admin Unauthorized Task",
+        "description": "Should fail",
+        "assignee_id": fe_id,
+        "due_date": (date.today() + timedelta(days=2)).isoformat(),
+    })
+    assert r_task_create.status_code == 403
+
+    r_proj_create = client.post(f"{API}/projects", headers=as_user("admin"), json={
+        "name": "Admin Unauthorized Project",
+        "ends_on": (date.today() + timedelta(days=10)).isoformat(),
+    })
+    assert r_proj_create.status_code == 403
+
+    # 3. Create a task via Owner, verify Admin cannot edit or cancel it
+    r_task = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Owner Created Task",
+        "description": "Testing admin lack of task edit/cancel permissions",
+        "assignee_id": fe_id,
+        "due_date": (date.today() + timedelta(days=3)).isoformat(),
+    })
+    assert r_task.status_code == 201
+    tid = r_task.json()["task"]["id"]
+
+    # Admin cannot edit
+    r_edit = client.patch(f"{API}/tasks/{tid}", headers=as_user("admin"), json={"title": "Admin Modified Title"})
+    assert r_edit.status_code == 403
+
+    # Admin cannot cancel
+    r_cancel = client.post(f"{API}/tasks/{tid}/cancel", headers=as_user("admin"), json={"reason": "Admin cancel attempt"})
+    assert r_cancel.status_code == 403
+
+    # Clean up
+    client.post(f"{API}/tasks/{tid}/cancel", headers=as_user("owner"), json={"reason": "Cleanup"})
+
+
+def test_project_with_multiple_tasks_and_multiple_employees(client, as_user, seeded):
+    fe_id = eid(seeded, FE)
+    abc_id = eid(seeded, ABC)
+
+    # 1. Create project with multiple employees
+    r_proj = client.post(f"{API}/projects", headers=as_user("owner"), json={
+        "name": "Multi-Task Project",
+        "description": "A project with multiple tasks and employees",
+        "member_ids": [fe_id, abc_id],
+        "ends_on": (date.today() + timedelta(days=14)).isoformat(),
+    })
+    assert r_proj.status_code == 201
+    pr_id = r_proj.json()["id"]
+
+    # 2. Add multiple tasks to the project
+    t1 = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Task 1: Architecture",
+        "description": "First task in project",
+        "project_id": pr_id,
+        "assignee_id": fe_id,
+    })
+    assert t1.status_code == 201
+
+    t2 = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Task 2: Implementation",
+        "description": "Second task in project",
+        "project_id": pr_id,
+        "assignee_id": abc_id,
+    })
+    assert t2.status_code == 201
+
+    # 3. Retrieve project and verify tasks & multiple members
+    pr_detail = client.get(f"{API}/projects/{pr_id}", headers=as_user("owner")).json()
+    assert len(pr_detail["members"]) == 2
+    member_ids = [m["id"] for m in pr_detail["members"]]
+    assert fe_id in member_ids and abc_id in member_ids
+    assert len(pr_detail["tasks"]) == 2
+
+    # Clean up
+    client.delete(f"{API}/projects/{pr_id}", headers=as_user("owner"))
+
+
+def test_owner_and_ceo_create_departments_later(client, as_user, seeded):
+    # 1. Owner creates company
+    r_comp = client.post(f"{API}/companies", headers=as_user("owner"), json={"name": "Delta Holdings", "code": "DELTA"})
+    assert r_comp.status_code == 201
+    delta_id = r_comp.json()["id"]
+
+    # 2. Owner authorizes CEO for company Delta
+    with seeded() as s:
+        from app.modules.auth.models import User
+        ceo_user = s.query(User).filter(User.email == "ceo@demo.example.com").first()
+        ceo_uid = ceo_user.id
+    client.post(f"{API}/companies/{delta_id}/ceos", headers=as_user("owner"), json={"user_id": ceo_uid})
+
+    # 3. Owner creates an additional department for Delta later
+    r_d1 = client.post(f"{API}/departments", headers=as_user("owner"), json={
+        "name": "Delta Marketing",
+        "code": "D_MKT",
+        "company_id": delta_id,
+    })
+    assert r_d1.status_code == 201
+    assert r_d1.json()["company_id"] == delta_id
+
+    # 4. CEO creates another additional department for Delta later
+    r_d2 = client.post(f"{API}/departments", headers=as_user("ceo"), json={
+        "name": "Delta Product",
+        "code": "D_PROD",
+        "company_id": delta_id,
+    })
+    assert r_d2.status_code == 201
+    assert r_d2.json()["company_id"] == delta_id
+
+    # 5. List departments filtered by company_id
+    depts = client.get(f"{API}/departments?company_id={delta_id}", headers=as_user("ceo")).json()
+    dept_codes = [d["code"] for d in depts]
+    assert "D_MKT" in dept_codes
+    assert "D_PROD" in dept_codes
+

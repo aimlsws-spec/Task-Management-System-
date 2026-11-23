@@ -28,7 +28,7 @@ export function NewTask() {
   const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
   const [f, setF] = useState({
     title: "", description: "", instructions: "", priority: "medium", due_date: "", start_date: today,
-    project_id: "", category_id: "", type_id: "",
+    project_id: sp.get("project_id") || "", category_id: "", type_id: "",
   });
   const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload") });
   const meta = useQuery({ queryKey: ["task-meta"], queryFn: () => api<Meta>("/task-meta") });

@@ -38,10 +38,11 @@ export function Companies() {
   const isAdmin = me?.roles?.includes("admin");
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newCompany, setNewCompany] = useState({ name: "", code: "", logo_url: "" });
+  const [newCompany, setNewCompany] = useState({ name: "", code: "", logo_url: "", ceo_user_id: "", ceo_email: "" });
 
   const [assignCeoCompId, setAssignCeoCompId] = useState<number | null>(null);
   const [selectedCeoUserId, setSelectedCeoUserId] = useState<string>("");
+  const [ceoInviteEmail, setCeoInviteEmail] = useState<string>("");
 
   const companiesQuery = useQuery({
     queryKey: ["companies"],
@@ -65,22 +66,28 @@ export function Companies() {
           name: newCompany.name.trim(),
           code: newCompany.code.trim().toUpperCase(),
           logo_url: newCompany.logo_url.trim() || null,
+          ceo_user_id: newCompany.ceo_user_id ? Number(newCompany.ceo_user_id) : null,
+          ceo_email: newCompany.ceo_email.trim() || null,
         },
       }),
     onSuccess: () => {
-      setNewCompany({ name: "", code: "", logo_url: "" });
+      setNewCompany({ name: "", code: "", logo_url: "", ceo_user_id: "", ceo_email: "" });
       setShowAddModal(false);
       invalidate();
     },
   });
 
   const assignCeo = useMutation({
-    mutationFn: ({ companyId, userId }: { companyId: number; userId: number }) =>
+    mutationFn: ({ companyId, userId, email }: { companyId: number; userId?: number | null; email?: string | null }) =>
       api(`/companies/${companyId}/ceos`, {
-        body: { user_id: userId },
+        body: {
+          user_id: userId ?? null,
+          email: email ?? null,
+        },
       }),
     onSuccess: () => {
       setSelectedCeoUserId("");
+      setCeoInviteEmail("");
       setAssignCeoCompId(null);
       invalidate();
     },
@@ -159,6 +166,29 @@ export function Companies() {
                 onChange={(e) => setNewCompany({ ...newCompany, logo_url: e.target.value })}
               />
             </Field>
+            <Field label="Appoint CEO (existing user)">
+              <Select
+                value={newCompany.ceo_user_id}
+                onChange={(e) => setNewCompany({ ...newCompany, ceo_user_id: e.target.value, ceo_email: "" })}
+                className="text-xs"
+              >
+                <option value="">None / Or invite by email below</option>
+                {potentialCeos.map((p) => (
+                  <option key={p.user_id} value={p.user_id}>
+                    {p.full_name} ({p.email})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Or Invite CEO by Email">
+              <Input
+                type="email"
+                placeholder="ceo@company.com (activation link sent)"
+                value={newCompany.ceo_email}
+                disabled={Boolean(newCompany.ceo_user_id)}
+                onChange={(e) => setNewCompany({ ...newCompany, ceo_email: e.target.value })}
+              />
+            </Field>
             <div className="sm:col-span-3 flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
                 Cancel
@@ -193,7 +223,9 @@ export function Companies() {
                 setAssignCeoCompId={setAssignCeoCompId}
                 selectedCeoUserId={selectedCeoUserId}
                 setSelectedCeoUserId={setSelectedCeoUserId}
-                onAssignCeo={(userId) => assignCeo.mutate({ companyId: company.id, userId })}
+                ceoInviteEmail={ceoInviteEmail}
+                setCeoInviteEmail={setCeoInviteEmail}
+                onAssignCeo={(arg) => assignCeo.mutate({ companyId: company.id, ...arg })}
                 onRemoveCeo={(userId) => removeCeo.mutate({ companyId: company.id, userId })}
                 isAssigning={assignCeo.isPending}
               />
@@ -213,6 +245,8 @@ function CompanyCard({
   setAssignCeoCompId,
   selectedCeoUserId,
   setSelectedCeoUserId,
+  ceoInviteEmail,
+  setCeoInviteEmail,
   onAssignCeo,
   onRemoveCeo,
   isAssigning,
@@ -224,7 +258,9 @@ function CompanyCard({
   setAssignCeoCompId: (id: number | null) => void;
   selectedCeoUserId: string;
   setSelectedCeoUserId: (id: string) => void;
-  onAssignCeo: (userId: number) => void;
+  ceoInviteEmail: string;
+  setCeoInviteEmail: (email: string) => void;
+  onAssignCeo: (arg: { userId?: number; email?: string }) => void;
   onRemoveCeo: (userId: number) => void;
   isAssigning: boolean;
 }) {
@@ -307,36 +343,62 @@ function CompanyCard({
 
           {/* Assign CEO Form */}
           {isOwner && isAssigningThis && (
-            <div className="mt-2.5 rounded-lg border border-indigo-200 bg-indigo-50/50 p-2.5">
-              <div className="text-xs font-medium text-slate-700 mb-1.5">
-                Select user to authorize as CEO for {company.name}:
+            <div className="mt-2.5 rounded-lg border border-indigo-200 bg-indigo-50/50 p-2.5 space-y-2">
+              <div className="text-xs font-medium text-slate-700">
+                Authorize CEO for {company.name}:
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
                 <Select
                   value={selectedCeoUserId}
-                  onChange={(e) => setSelectedCeoUserId(e.target.value)}
-                  className="text-xs"
+                  onChange={(e) => {
+                    setSelectedCeoUserId(e.target.value);
+                    if (e.target.value) setCeoInviteEmail("");
+                  }}
+                  className="text-xs min-w-44 flex-1"
                 >
-                  <option value="">Choose employee / CEO…</option>
+                  <option value="">Select existing user / CEO…</option>
                   {potentialCeos.map((p) => (
                     <option key={p.user_id} value={p.user_id}>
                       {p.full_name} ({p.email})
                     </option>
                   ))}
                 </Select>
+                <span className="text-xs text-slate-400">or</span>
+                <Input
+                  type="email"
+                  placeholder="Invite new CEO email…"
+                  value={ceoInviteEmail}
+                  onChange={(e) => {
+                    setCeoInviteEmail(e.target.value);
+                    if (e.target.value) setSelectedCeoUserId("");
+                  }}
+                  className="text-xs min-w-44 flex-1"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
                 <Button
-                  className="py-1 px-2.5 text-xs"
-                  disabled={!selectedCeoUserId || isAssigning}
-                  onClick={() => onAssignCeo(Number(selectedCeoUserId))}
-                >
-                  Authorize
-                </Button>
-                <Button
-                  className="py-1 px-2.5 text-xs"
+                  className="py-1 px-3 text-xs"
                   variant="outline"
-                  onClick={() => setAssignCeoCompId(null)}
+                  onClick={() => {
+                    setAssignCeoCompId(null);
+                    setSelectedCeoUserId("");
+                    setCeoInviteEmail("");
+                  }}
                 >
                   Cancel
+                </Button>
+                <Button
+                  className="py-1 px-3 text-xs"
+                  disabled={(!selectedCeoUserId && !ceoInviteEmail.trim()) || isAssigning}
+                  onClick={() => {
+                    if (selectedCeoUserId) {
+                      onAssignCeo({ userId: Number(selectedCeoUserId) });
+                    } else if (ceoInviteEmail.trim()) {
+                      onAssignCeo({ email: ceoInviteEmail.trim() });
+                    }
+                  }}
+                >
+                  {ceoInviteEmail.trim() ? "Send CEO Invite" : "Authorize CEO"}
                 </Button>
               </div>
             </div>

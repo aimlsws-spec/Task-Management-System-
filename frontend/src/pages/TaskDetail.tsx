@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { BlockersSection, Discussion, RaiseBlockerPanel } from "@/components/Collab";
 
 type Event = { id: number; action: string; actor: string | null; before: Record<string, unknown> | null; after: Record<string, unknown> | null; at: string };
-type Panel = null | "edit" | "reassign" | "priority" | "cancel" | "hold" | "progress" | "finish" | "review" | "revert" | "deadline" | "extension" | "explain" | "review_delay" | "blocker";
+type Panel = null | "edit" | "reassign" | "priority" | "cancel" | "hold" | "progress" | "finish" | "submit_to_owner" | "review" | "revert" | "deadline" | "extension" | "explain" | "review_delay" | "blocker";
 
 const textarea = "block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200";
 const REASONS = [["qa_defect", "QA found a defect"], ["incomplete", "Work is incomplete"], ["requirement_change", "Requirement changed"], ["other", "Other"]] as const;
@@ -104,6 +104,7 @@ export function TaskDetail() {
             {can("revert") && <Button variant="danger" onClick={() => toggle("revert")}>Revert</Button>}
             {isLeadership && can("edit") && <Button variant="outline" onClick={() => toggle("edit")}>Edit</Button>}
             {can("reassign") && <Button variant="outline" onClick={() => toggle("reassign")}>Transfer task</Button>}
+            {can("submit_to_owner") && <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => toggle("submit_to_owner")}>Complete & Submit to Owner</Button>}
             {can("change_priority") && <Button variant="outline" onClick={() => toggle("priority")}>Priority</Button>}
             {isLeadership && can("cancel") && <Button variant="danger" onClick={() => toggle("cancel")}>Cancel task</Button>}
             {can("explain_delay") && !dl?.required && <Button variant="outline" onClick={() => toggle("explain")}>Delay update</Button>}
@@ -145,6 +146,7 @@ export function TaskDetail() {
 
       {panel === "edit" && <EditPanel t={t} onSave={(b) => act.mutate({ path: "", method: "PATCH", body: b })} onClose={() => setPanel(null)} />}
       {panel === "reassign" && <ReassignPanel t={t} people={people.data ?? []} onSave={(b) => post("/reassign", b)} onClose={() => setPanel(null)} />}
+      {panel === "submit_to_owner" && <SubmitToOwnerPanel onSave={(b) => post("/submit-to-owner", b)} onClose={() => setPanel(null)} />}
       {panel === "priority" && <PriorityPanel t={t} onSave={(b) => post("/priority", b)} onClose={() => setPanel(null)} />}
       {panel === "cancel" && <ReasonPanel title="Cancel this task" label="Reason (required — the assignee and everyone above can see it)" danger cta="Cancel task" onSave={(reason) => post("/cancel", { reason })} onClose={() => setPanel(null)} />}
       {panel === "hold" && <ReasonPanel title="Put this task on hold" label="Why is it on hold?" cta="Put on hold" onSave={(reason) => post("/hold", { reason })} onClose={() => setPanel(null)} />}
@@ -601,6 +603,50 @@ function FinishPanel({ t, review, lateRequired, onSave, onClose }: { t: Task; re
           </div>
         )}
         <div className="sm:col-span-2"><Buttons cta={review ? "Submit for review" : "Mark complete"} onClose={onClose} /></div>
+      </form>
+    </Panel>
+  );
+}
+
+function SubmitToOwnerPanel({ onSave, onClose }: { onSave: (b: Record<string, unknown>) => void; onClose: () => void }) {
+  const [summary, setSummary] = useState("");
+  const [tested, setTested] = useState(true);
+  const [notes, setNotes] = useState("");
+  const [evidence, setEvidence] = useState("");
+
+  return (
+    <Panel title="Complete & Submit to Owner">
+      <p className="mb-3 text-xs text-slate-500">
+        As CEO, you can complete this task directly and submit it to the Owner for executive review, as an allowed alternative to transferring it onward.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({ summary, tested, test_notes: notes || null, evidence_url: evidence || null });
+        }}
+        className="grid gap-3 sm:grid-cols-2"
+      >
+        <div className="sm:col-span-2">
+          <Field label="What was completed? (Summary)">
+            <textarea required minLength={5} rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} className={textarea} placeholder="Summary of work completed..." />
+          </Field>
+        </div>
+        <fieldset className="sm:col-span-2 flex flex-wrap items-center gap-4 text-sm">
+          <legend className="mb-1 text-xs font-medium text-slate-600">Verification status</legend>
+          <label className="flex items-center gap-2"><input type="radio" checked={tested} onChange={() => setTested(true)} /> Tested & verified</label>
+          <label className="flex items-center gap-2"><input type="radio" checked={!tested} onChange={() => setTested(false)} /> Not fully tested</label>
+        </fieldset>
+        {!tested && (
+          <div className="sm:col-span-2">
+            <Field label="Notes on remaining testing (required)">
+              <Input required value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        <Field label="Evidence link (optional)"><Input type="url" placeholder="https://" value={evidence} onChange={(e) => setEvidence(e.target.value)} /></Field>
+        <div className="sm:col-span-2">
+          <Buttons cta="Complete & Submit to Owner" onClose={onClose} />
+        </div>
       </form>
     </Panel>
   );

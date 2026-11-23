@@ -16,6 +16,7 @@ ADMIN_OR_CEO = {"admin", "owner", "ceo"}  # CEO can manage employees, depts, hie
 AUDIT = {"admin", "owner"}  # Owner can view audit log
 WORK = {"owner", "ceo", "manager", "devhead", "abc"}  # task.view: everyone except the Admin
 ASSIGNERS = {"owner", "ceo", "manager", "devhead"}  # task.create + task.assign (employees and Admin cannot)
+LEADERSHIP = {"owner", "ceo"}  # Only Owner and CEO have authority to edit or delete tasks and projects
 
 # (method, path, json body, roles allowed)
 MATRIX = [
@@ -60,14 +61,14 @@ MATRIX = [
     ("GET", "/workload", None, ASSIGNERS),
     ("GET", "/projects", None, ALL),
     ("POST", "/projects", {"bad": 1}, ASSIGNERS),
-    ("PATCH", "/projects/999999", {"name": "abc"}, ASSIGNERS),
+    ("PATCH", "/projects/999999", {"name": "abc"}, LEADERSHIP),
     ("GET", "/task-meta", None, ALL),
     # --- projects (ADR 003): create/edit by project.manage; only Owner and CEO sign a project off
     ("GET", "/projects/999999", None, ALL),
-    ("PATCH", "/projects/999999", {"name": "abc"}, ASSIGNERS),
+    ("PATCH", "/projects/999999", {"name": "abc"}, LEADERSHIP),
     ("POST", "/projects/999999/points", {"title": "abc"}, ASSIGNERS),
-    ("PATCH", "/projects/999999/points/1", {"title": "abc"}, ASSIGNERS),
-    ("DELETE", "/projects/999999/points/1", None, ASSIGNERS),
+    ("PATCH", "/projects/999999/points/1", {"title": "abc"}, LEADERSHIP),
+    ("DELETE", "/projects/999999/points/1", None, LEADERSHIP),
     ("POST", "/projects/999999/points/1/assign", {"assignee_id": 1, "priority": "low", "due_date": "2030-01-01", "estimated_hours": 1}, ASSIGNERS),
     ("POST", "/projects/999999/complete", {}, {"owner", "ceo", "devhead", "manager"}),
     # --- Phase 4: the employee's work, finishing, review, time ---

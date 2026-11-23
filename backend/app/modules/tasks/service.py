@@ -156,8 +156,6 @@ def can_manage(p: Principal, t: Task, perm: str) -> bool:
     """Holds `perm` and the task belongs to someone in that permission's scope, or I created it."""
     if not p.has(perm):
         return False
-    if perm in ("task.edit", "task.cancel") and not is_leadership(p):
-        return False
     me = p.employee.id if p.employee else -1
     return t.assigned_by_id == me or p.can_see(perm, t.assignee_id)
 
@@ -291,8 +289,8 @@ def allowed_actions(p: Principal, t: Task) -> list[str]:
             acts.append("submit_for_review")
     if mine and t.status in ("assigned", "acknowledged", "in_progress", "on_hold", "reopened", "blocked") and p.has("blocker.raise"):
         acts.append("raise_blocker")
-    manages_edit = can_manage(p, t, "task.edit")
-    if not mine and manages_edit and t.status in ("in_progress", "on_hold"):
+    manages_hold = can_manage(p, t, "task.assign")
+    if not mine and manages_hold and t.status in ("in_progress", "on_hold"):
         acts.append("hold" if t.status == "in_progress" else "unhold")
     if mine and t.status == "on_hold":
         acts.append("unhold")
@@ -309,14 +307,16 @@ def allowed_actions(p: Principal, t: Task) -> list[str]:
             if t.verified_at is None:
                 acts.append("verify")
     if t.status in OPEN_STATUSES:
-        if can_manage(p, t, "task.edit"):
+        if is_leadership(p) and can_manage(p, t, "task.edit"):
             acts.append("edit")
         if can_manage(p, t, "task.reassign"):
             acts.append("reassign")
         if can_manage(p, t, "task.priority.change"):
             acts.append("change_priority")
-        if can_manage(p, t, "task.cancel"):
+        if is_leadership(p) and can_manage(p, t, "task.cancel"):
             acts.append("cancel")
+        if "ceo" in p.roles and p.can_access_company(t.company_id):
+            acts.append("submit_to_owner")
     # --- deadlines and delay accountability (Phase 5)
     from app.modules.tasks import delays  # imported here: delays itself builds on this module
 

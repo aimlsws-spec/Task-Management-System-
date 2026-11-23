@@ -71,7 +71,7 @@ def add_progress(db: Session, p: Principal, t: Task, pct: int, note: str, reques
 
 def hold(db: Session, p: Principal, t: Task, reason: str, request: Request) -> None:
     by_manager = not (p.employee and p.employee.id == t.assignee_id)
-    if by_manager and not can_manage(p, t, "task.edit"):
+    if by_manager and not can_manage(p, t, "task.assign"):
         raise Forbidden()
     if len(reason.strip()) < 3:
         raise AppError("REASON_REQUIRED", "A reason is required to put a task on hold", 422)
@@ -82,7 +82,7 @@ def hold(db: Session, p: Principal, t: Task, reason: str, request: Request) -> N
 
 def unhold(db: Session, p: Principal, t: Task, request: Request) -> None:
     by_manager = not (p.employee and p.employee.id == t.assignee_id)
-    if by_manager and not can_manage(p, t, "task.edit"):
+    if by_manager and not can_manage(p, t, "task.assign"):
         raise Forbidden()
     sm.transition(db, t, "in_progress", p.user.id, "manager" if by_manager else "assignee", "Resumed from hold")
     _log(db, p, "TASK_RESUMED_FROM_HOLD", t, request=request)
@@ -154,6 +154,44 @@ def submit_for_review(db: Session, p: Principal, t: Task, d: dict, request: Requ
     sm.transition(db, t, "under_review", p.user.id, "assignee", "Submitted for review")
     t.submitted_at, t.progress_pct = clock.utcnow(), 100
     _log(db, p, "TASK_SUBMITTED", t, after={"attempt": a.attempt_no, "summary": a.summary, "tested": a.tested}, request=request)
+
+
+def submit_to_owner(db: Session, p: Principal, t: Task, d: dict, request: Request) -> None:
+    if not ({"ceo", "owner"} & set(p.roles) or p.rank >= 100):
+        raise Forbidden("Only the CEO or Owner can complete a task and submit it directly to the Owner")
+    if not p.can_access_company(t.company_id):
+        raise Forbidden("You cannot manage tasks outside your authorized companies")
+    if t.status in ("completed", "cancelled"):
+        raise Conflict("TERMINAL_TASK", f"A {t.status} task cannot be submitted")
+    if len(d["summary"].strip()) < 5:
+        raise AppError("SUMMARY_REQUIRED", "Describe what was done", 422)
+    if d.get("tested") is False and len((d.get("test_notes") or "").strip()) < 3:
+        raise AppError("TEST_NOTES_REQUIRED", "If it is not tested, explain why or what remains to test", 422)
+
+    now = clock.utcnow()
+    q.close_running_for_task(db, t, "completed", now)
+
+    emp_id = p.employee.id if p.employee else (db.scalar(select(Employee.id).where(Employee.user_id == p.user.id)) or t.assignee_id)
+    row = TaskCompletionAssurance(
+        task_id=t.id,
+        employee_id=emp_id,
+        attempt_no=attempts(db, t) + 1,
+        summary=d["summary"].strip(),
+        tested=d.get("tested", True),
+        test_notes=(d.get("test_notes") or "").strip() or None,
+        evidence_url=d.get("evidence_url") or None,
+        no_time_reason=None,
+    )
+    db.add(row)
+    db.flush()
+
+    sm.force_status(db, t, "under_review", p.user.id, "Completed by CEO and submitted directly to Owner")
+    t.submitted_at = now
+    t.progress_pct = 100
+    t.review_stage = "leadership"
+
+    _log(db, p, "TASK_SUBMITTED_TO_OWNER", t, after={"attempt": row.attempt_no, "summary": row.summary, "tested": row.tested}, request=request)
+    projects.announce_stage(db, p, t, request)
 
 
 # ---------------------------------------------------------------- management: review / verify / revert

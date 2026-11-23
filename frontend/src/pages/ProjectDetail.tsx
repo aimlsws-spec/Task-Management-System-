@@ -150,7 +150,16 @@ export function ProjectDetail() {
       <Points d={d} onChanged={refresh} />
 
       <Card className="mt-5 overflow-x-auto">
-        <div className="p-4 pb-0"><h2 className="text-sm font-semibold text-brand-ink">Tasks in this project</h2></div>
+        <div className="p-4 pb-0 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-brand-ink">Tasks in this project ({d.tasks.length})</h2>
+          {d.can_manage && d.status !== "archived" && (
+            <Link to={`/tasks/new?project_id=${d.id}`}>
+              <Button variant="outline" className="py-1 text-xs">
+                <Plus size={14} className="mr-1 inline" /> Add task to project
+              </Button>
+            </Link>
+          )}
+        </div>
         {d.tasks.length === 0 ? <EmptyState title="No tasks yet" hint="Assign a point above to create the first task." /> : (
           <table className="mt-2 w-full text-left text-sm">
             <thead><tr><th className="p-3">Task</th><th className="p-3">Assignee</th><th className="p-3">Status</th><th className="p-3">Deadline</th></tr></thead>

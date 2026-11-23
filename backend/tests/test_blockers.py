@@ -256,15 +256,19 @@ def test_a_blocker_tells_the_management_line_and_confirms_to_the_employee(client
 def test_a_critical_task_blocker_also_reaches_the_ceo(client, as_user, seeded):
     # When task has no head (neither explicit nor department fallback), blocker routes directly to CEO and Owner
     t = started(client, as_user, seeded, priority="critical")
-    from app.modules.org.models import Department
-    from app.modules.tasks.models import Task
+    from app.modules.org.models import Department, DepartmentHead
+    from app.modules.tasks.models import Task, TaskHead
     with seeded() as db:
         task_row = db.get(Task, t["id"])
         task_row.head_employee_id = None
+        task_row.sub_head_employee_id = None
+        db.query(TaskHead).filter(TaskHead.task_id == t["id"]).delete()
         if task_row.department_id:
             dept = db.get(Department, task_row.department_id)
             if dept:
                 dept.head_employee_id = None
+                dept.sub_head_employee_id = None
+            db.query(DepartmentHead).filter(DepartmentHead.department_id == task_row.department_id).delete()
         db.commit()
     raise_b(client, as_user, t["id"])
     relay(seeded)

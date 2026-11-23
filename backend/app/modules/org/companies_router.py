@@ -8,7 +8,10 @@ from app.core.errors import AppError, Conflict, Forbidden, NotFound
 from app.core.schemas import Strict
 from app.modules.audit import service as audit
 from app.modules.auth.models import User
+from app.modules.notifications import direct
+from app.modules.org import invites
 from app.modules.org.models import Company, CompanyCEO, Department, Employee
+from app.modules.rbac.models import Role, UserRole
 from app.modules.rbac.policy import Principal
 
 router = APIRouter(prefix="/companies", tags=["companies"])
@@ -18,6 +21,8 @@ class CompanyIn(Strict):
     name: str = Field(min_length=2, max_length=150)
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Za-z0-9_-]+$")
     logo_url: str | None = None
+    ceo_email: str | None = None
+    ceo_user_id: int | None = None
 
 
 class CompanyPatch(Strict):
@@ -85,6 +90,29 @@ def create_company(body: CompanyIn, request: Request, p: Principal = Depends(req
         p.db.add(Department(name=f"{c.name} General", code=dept_code, company_id=c.id, self_service=True))
         p.db.flush()
 
+    # Appoint CEO upon company creation if provided
+    if body.ceo_user_id is not None:
+        ceo_user = p.db.get(User, body.ceo_user_id)
+        if ceo_user:
+            p.db.add(CompanyCEO(company_id=c.id, user_id=ceo_user.id, granted_by_user_id=p.user.id))
+            ceo_role = p.db.scalar(select(Role).where(Role.code == "ceo"))
+            if ceo_role and not p.db.scalar(select(UserRole.user_id).where(UserRole.user_id == ceo_user.id, UserRole.role_id == ceo_role.id)):
+                p.db.add(UserRole(user_id=ceo_user.id, role_id=ceo_role.id, granted_by=p.user.id))
+            p.db.flush()
+            direct.invitation(p.db, "CEO", ceo_user.email, has_account=True, user_id=ceo_user.id)
+    elif body.ceo_email and body.ceo_email.strip():
+        ceo_email = body.ceo_email.strip().lower()
+        existing_user = p.db.scalar(select(User).where(User.email == ceo_email))
+        if existing_user:
+            p.db.add(CompanyCEO(company_id=c.id, user_id=existing_user.id, granted_by_user_id=p.user.id))
+            ceo_role = p.db.scalar(select(Role).where(Role.code == "ceo"))
+            if ceo_role and not p.db.scalar(select(UserRole.user_id).where(UserRole.user_id == existing_user.id, UserRole.role_id == ceo_role.id)):
+                p.db.add(UserRole(user_id=existing_user.id, role_id=ceo_role.id, granted_by=p.user.id))
+            p.db.flush()
+            direct.invitation(p.db, "CEO", existing_user.email, has_account=True, user_id=existing_user.id)
+        else:
+            invites.create_invite(p.db, p, ceo_email, "ceo", request, company_id=c.id)
+
     audit.log(p.db, p.user.id, "COMPANY_CREATED", "company", c.id, after={"name": c.name, "code": c.code}, request=request)
     return _company_dict(p.db, c)
 
@@ -138,9 +166,12 @@ def assign_company_ceo(company_id: int, body: AssignCEOIn, request: Request, p: 
         raise NotFound("Company")
     user_id = body.user_id
     if user_id is None and body.email:
-        u = p.db.scalar(select(User).where(User.email == body.email.strip().lower()))
+        email_clean = body.email.strip().lower()
+        u = p.db.scalar(select(User).where(User.email == email_clean))
         if not u:
-            raise NotFound("User")
+            # User doesn't exist yet: create role invitation for CEO with account activation link
+            invites.create_invite(p.db, p, email_clean, "ceo", request, company_id=company_id)
+            return _company_dict(p.db, c)
         user_id = u.id
     if user_id is None:
         raise AppError("USER_REQUIRED", "User ID or email is required", 422)

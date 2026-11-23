@@ -25,7 +25,7 @@ class TaskIn(Strict):
     instructions: str | None = Field(None, max_length=20000)
     special_note: str | None = Field(None, max_length=20000)
     assignee_id: int
-    priority: Priority
+    priority: Priority = "medium"
     due_date: date | None = None
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)  # optional: owners give a deadline, not an effort estimate
@@ -94,6 +94,15 @@ class FinishIn(Strict):
     evidence_url: str | None = Field(None, max_length=500)
     no_time_reason: str | None = Field(None, max_length=1000)  # only if no time was tracked on the task
     late_reason: str | None = Field(None, max_length=2000)  # one line, only when the task is overdue and unexplained
+
+
+class SubmitToOwnerIn(Strict):
+    """Assurance provided by CEO when completing a task and submitting directly to Owner."""
+
+    summary: str = Field(min_length=5, max_length=5000)
+    tested: bool = True
+    test_notes: str | None = Field(None, max_length=5000)
+    evidence_url: str | None = Field(None, max_length=500)
 
 
 class ReviewIn(Strict):
@@ -270,6 +279,13 @@ def complete(task_id: int, body: FinishIn, request: Request, p: Principal = Depe
 def submit_for_review(task_id: int, body: FinishIn, request: Request, p: Principal = Depends(require("task.view"))):
     t = _task(p, task_id)
     workflow.submit_for_review(p.db, p, t, body.model_dump(), request)
+    return _detail(p, t)
+
+
+@router.post("/tasks/{task_id}/submit-to-owner")
+def submit_to_owner(task_id: int, body: SubmitToOwnerIn, request: Request, p: Principal = Depends(require("task.view"))):
+    t = _task(p, task_id)
+    workflow.submit_to_owner(p.db, p, t, body.model_dump(), request)
     return _detail(p, t)
 
 

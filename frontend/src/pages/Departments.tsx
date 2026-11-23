@@ -27,16 +27,28 @@ export function Departments() {
   const qc = useQueryClient();
   const { can } = useAuth();
   const depts = useQuery({ queryKey: ["departments"], queryFn: () => api<Dept[]>("/departments") });
+  const companies = useQuery({ queryKey: ["companies"], queryFn: () => api<Array<{ id: number; name: string; code: string }>>("/companies") });
   const emps = useQuery({ queryKey: ["employees", "all"], queryFn: () => api<{ items: Emp[] }>("/employees", { params: { page_size: 200 } }), enabled: can("employee.view") });
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [filterCompanyId, setFilterCompanyId] = useState("");
   const [regroup, setRegroup] = useState(true);
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(null);
   const [managingLeaders, setManagingLeaders] = useState<Dept | null>(null);
   const [notice, setNotice] = useState("");
 
   const refresh = () => { qc.invalidateQueries({ queryKey: ["departments"] }); qc.invalidateQueries({ queryKey: ["employees"] }); qc.invalidateQueries({ queryKey: ["hierarchy"] }); };
-  const create = useMutation({ mutationFn: () => api("/departments", { body: { name, code } }), onSuccess: () => { setName(""); setCode(""); refresh(); } });
+  const create = useMutation({
+    mutationFn: () => api("/departments", {
+      body: {
+        name,
+        code,
+        company_id: selectedCompanyId ? Number(selectedCompanyId) : null,
+      },
+    }),
+    onSuccess: () => { setName(""); setCode(""); setSelectedCompanyId(""); refresh(); },
+  });
   const patch = useMutation({ mutationFn: (v: { id: number; body: Record<string, unknown> }) => api(`/departments/${v.id}`, { method: "PATCH", body: v.body }), onSuccess: () => { setEditing(null); refresh(); } });
   const del = useMutation({ mutationFn: (id: number) => api(`/departments/${id}`, { method: "DELETE" }), onSuccess: refresh });
   const setHead = useMutation({
@@ -61,6 +73,18 @@ export function Departments() {
         <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
           <Field label="Name"><Input required value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Code"><Input required pattern="[A-Za-z0-9_-]+" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
+          {companies.data && companies.data.length > 0 && (
+            <Field label="Company">
+              <Select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)}>
+                <option value="">Default Company</option>
+                {companies.data.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.code})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Button type="submit" disabled={create.isPending}>Add department</Button>
         </form>
         <label className="mt-4 flex items-center gap-2 text-sm text-slate-600">
@@ -72,13 +96,39 @@ export function Departments() {
       </Card>
 
       <Card className="overflow-x-auto">
+        {companies.data && companies.data.length > 1 && (
+          <div className="flex items-center justify-between border-b border-slate-100 p-3 text-xs bg-slate-50/50">
+            <span className="font-medium text-slate-600">Filter by Company:</span>
+            <Select
+              className="max-w-xs text-xs py-1"
+              value={filterCompanyId}
+              onChange={(e) => setFilterCompanyId(e.target.value)}
+            >
+              <option value="">All Companies</option>
+              {companies.data.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
         {depts.isLoading ? <Spinner /> : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <tr><th className="p-3">Department</th><th className="p-3">Head</th><th className="p-3">SubHead</th><th className="p-3">QA tester</th><th className="p-3">Shown at sign-up</th><th className="p-3">Status</th><th className="p-3" /></tr>
+              <tr>
+                <th className="p-3">Department</th>
+                <th className="p-3">Company</th>
+                <th className="p-3">Head</th>
+                <th className="p-3">SubHead</th>
+                <th className="p-3">QA tester</th>
+                <th className="p-3">Shown at sign-up</th>
+                <th className="p-3">Status</th>
+                <th className="p-3" />
+              </tr>
             </thead>
             <tbody>
-              {depts.data?.map((d) => (
+              {depts.data?.filter((d) => !filterCompanyId || String(d.company_id) === filterCompanyId || d.company_ids?.includes(Number(filterCompanyId))).map((d) => (
                 <tr key={d.id} className="border-b border-slate-100 last:border-0">
                   <td className="p-3">
                     {editing?.id === d.id ? (
@@ -93,6 +143,11 @@ export function Departments() {
                         <div className="text-xs text-slate-500">{d.code}</div>
                       </>
                     )}
+                  </td>
+                  <td className="p-3">
+                    <span className="text-xs text-slate-600 font-medium">
+                      {companies.data?.find((c) => c.id === d.company_id)?.name || (d.is_shared ? "Shared / All" : "Primary")}
+                    </span>
                   </td>
                   <td className="p-3">
                     <Select className="max-w-56" value={d.head_employee_id ?? ""} onChange={(e) => setHead.mutate({ id: d.id, head: e.target.value ? Number(e.target.value) : null })}>

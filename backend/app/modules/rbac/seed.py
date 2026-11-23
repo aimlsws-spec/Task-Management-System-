@@ -11,7 +11,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission
 log = logging.getLogger("tms.rbac")
 
 # Bump when the default matrix changes; system roles are then reset to the new defaults once.
-SEED_VERSION = 8  # v8: task.edit and task.cancel restricted strictly to Owner and CEO
+SEED_VERSION = 9  # v9: notification.rules.manage is system admin only
 
 # code -> (category, description)
 PERMISSIONS: dict[str, tuple[str, str]] = {
