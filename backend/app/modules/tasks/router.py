@@ -34,6 +34,7 @@ class TaskIn(Strict):
     type_id: int | None = None
     head_employee_id: int | None = None  # optional head who approves finished work; none = no head
     sub_head_employee_id: int | None = None  # optional sub-head
+    head_employee_ids: list[int] | None = None  # optional multiple heads/subheads
     qa_employee_id: int | None = None  # optional QA
     qa_employee_ids: list[int] | None = None  # optional multiple QA members
 
@@ -50,6 +51,7 @@ class TaskPatch(Strict):
     type_id: int | None = None
     head_employee_id: int | None = None
     sub_head_employee_id: int | None = None
+    head_employee_ids: list[int] | None = None
     qa_employee_id: int | None = None
     qa_employee_ids: list[int] | None = None
 

@@ -212,9 +212,12 @@ def test_allowed_actions_depend_on_who_asks(client, as_user, seeded):
 
 def test_cancel_requires_reason_and_closes_the_task(client, as_user, seeded):
     t = make(client, as_user, seeded)
-    h = as_user("manager")
-    assert client.post(f"{API}/tasks/{t['id']}/cancel", headers=h, json={"reason": "no"}).status_code == 422
+    h = as_user("owner")
+    # Non-leadership roles cannot cancel
+    assert client.post(f"{API}/tasks/{t['id']}/cancel", headers=as_user("manager"), json={"reason": "valid reason"}).status_code == 403
     assert client.post(f"{API}/tasks/{t['id']}/cancel", headers=as_user("abc"), json={"reason": "I do not want it"}).status_code == 403
+    # Leadership requires reason min 3 chars
+    assert client.post(f"{API}/tasks/{t['id']}/cancel", headers=h, json={"reason": "no"}).status_code == 422
     r = client.post(f"{API}/tasks/{t['id']}/cancel", headers=h, json={"reason": "Requirement dropped"})
     assert r.status_code == 200 and r.json()["status"] == "cancelled" and r.json()["cancel_reason"] == "Requirement dropped"
     assert client.post(f"{API}/tasks/{t['id']}/cancel", headers=h, json={"reason": "again please"}).status_code == 409
@@ -257,9 +260,12 @@ def test_priority_change_is_audited(client, as_user, seeded):
 
 def test_edit_fields_but_never_the_deadline(client, as_user, seeded):
     t = make(client, as_user, seeded)
-    r = client.patch(f"{API}/tasks/{t['id']}", headers=as_user("devhead"), json={"title": "Chatbot API v2", "estimated_hours": 16})
-    assert r.status_code == 200 and r.json()["title"] == "Chatbot API v2" and r.json()["estimated_hours"] == 16
+    # Devhead cannot edit task (leadership only)
+    assert client.patch(f"{API}/tasks/{t['id']}", headers=as_user("devhead"), json={"title": "Chatbot API v2"}).status_code == 403
     assert client.patch(f"{API}/tasks/{t['id']}", headers=as_user("abc"), json={"title": "Mine now"}).status_code == 403
+    # Owner can edit task
+    r = client.patch(f"{API}/tasks/{t['id']}", headers=as_user("owner"), json={"title": "Chatbot API v2", "estimated_hours": 16})
+    assert r.status_code == 200 and r.json()["title"] == "Chatbot API v2" and r.json()["estimated_hours"] == 16
     assert client.patch(f"{API}/tasks/{t['id']}", headers=as_user("owner"), json={"due_at": "2030-01-01T00:00:00Z"}).status_code == 422
     assert client.patch(f"{API}/tasks/{t['id']}", headers=as_user("owner"), json={"assignee_id": 1}).status_code == 422
     assert client.get(f"{API}/tasks/{t['id']}", headers=as_user("owner")).json()["original_due_at"] == t["original_due_at"]

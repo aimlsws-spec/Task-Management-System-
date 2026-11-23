@@ -47,6 +47,7 @@ export function TaskDetail() {
   const task = useQuery({ queryKey: ["task", id], queryFn: () => api<Task>(`/tasks/${id}`), refetchInterval: 5000 });
   const timeline = useQuery({ queryKey: ["task", id, "timeline"], queryFn: () => api<Event[]>(`/tasks/${id}/timeline`), refetchInterval: 5000 });
   const t = task.data;
+  const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const can = (a: string) => !!t?.allowed_actions?.includes(a);
   const iAmAssignee = !!t && me?.employee?.id === t.assignee.id;
   const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload"), enabled: can("reassign") });
@@ -101,10 +102,10 @@ export function TaskDetail() {
             {can("review") && <Button onClick={() => toggle("review")}>{t.review_stage === "qa" ? "Test: report bugs or pass" : t.review_stage === "head" ? "Approve work" : "Review"}</Button>}
             {can("verify") && <Button variant="outline" onClick={() => post("/verify", {})}>Verify</Button>}
             {can("revert") && <Button variant="danger" onClick={() => toggle("revert")}>Revert</Button>}
-            {can("edit") && <Button variant="outline" onClick={() => toggle("edit")}>Edit</Button>}
-            {can("reassign") && <Button variant="outline" onClick={() => toggle("reassign")}>Reassign</Button>}
+            {isLeadership && can("edit") && <Button variant="outline" onClick={() => toggle("edit")}>Edit</Button>}
+            {can("reassign") && <Button variant="outline" onClick={() => toggle("reassign")}>Transfer task</Button>}
             {can("change_priority") && <Button variant="outline" onClick={() => toggle("priority")}>Priority</Button>}
-            {can("cancel") && <Button variant="danger" onClick={() => toggle("cancel")}>Cancel task</Button>}
+            {isLeadership && can("cancel") && <Button variant="danger" onClick={() => toggle("cancel")}>Cancel task</Button>}
             {can("explain_delay") && !dl?.required && <Button variant="outline" onClick={() => toggle("explain")}>Delay update</Button>}
             {can("review_delay") && <Button onClick={() => toggle("review_delay")}>Decide on delay</Button>}
           </div>
@@ -120,11 +121,15 @@ export function TaskDetail() {
         )}
         {t.status === "under_review" && t.review_stage === "head" && (
           <Badge tone="purple">
-            Waiting for Head / SubHead review: {[t.head?.full_name, t.sub_head?.full_name].filter(Boolean).join(" / ") || "Head"}
+            Waiting for Head / SubHead review: {t.heads && t.heads.length > 0 ? t.heads.map((h) => h.full_name).join(", ") : [t.head?.full_name, t.sub_head?.full_name].filter(Boolean).join(" / ") || "Head"}
           </Badge>
         )}
-        {t.head && !t.review_stage && <Badge tone="grey">Head: {t.head.full_name}</Badge>}
-        {t.sub_head && !t.review_stage && <Badge tone="grey">SubHead: {t.sub_head.full_name}</Badge>}
+        {t.heads && t.heads.length > 0 && !t.review_stage ? (
+          <Badge tone="grey">Heads: {t.heads.map((h) => h.full_name).join(", ")}</Badge>
+        ) : t.head && !t.review_stage ? (
+          <Badge tone="grey">Head: {t.head.full_name}</Badge>
+        ) : null}
+        {t.sub_head && !t.heads?.length && !t.review_stage && <Badge tone="grey">SubHead: {t.sub_head.full_name}</Badge>}
         {t.qa_members && t.qa_members.length > 0 && !t.review_stage ? (
           <Badge tone="grey">QA: {t.qa_members.map((q) => q.full_name).join(", ")}</Badge>
         ) : t.qa && !t.review_stage ? (
@@ -262,17 +267,23 @@ export function TaskDetail() {
 
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Responsible Head</dt>
-                {t.head ? (
+                {t.heads && t.heads.length > 0 ? (
+                  <div className="space-y-1">
+                    {t.heads.map((h, i) => (
+                      <dd key={h.id} className="font-medium text-slate-900">
+                        {h.full_name} <span className="text-xs font-normal text-slate-500">({i === 0 ? "Head" : "SubHead / Head"}{h.job_title ? ` · ${h.job_title}` : ""})</span>
+                      </dd>
+                    ))}
+                  </div>
+                ) : t.head ? (
                   <dd className="font-medium text-slate-900">
                     {t.head.full_name} <span className="text-xs font-normal text-slate-500">(Head{t.head.job_title ? ` · ${t.head.job_title}` : ""})</span>
                   </dd>
-                ) : null}
-                {t.sub_head ? (
+                ) : t.sub_head ? (
                   <dd className="font-medium text-slate-900">
                     {t.sub_head.full_name} <span className="text-xs font-normal text-slate-500">(SubHead{t.sub_head.job_title ? ` · ${t.sub_head.job_title}` : ""})</span>
                   </dd>
-                ) : null}
-                {!t.head && !t.sub_head && (
+                ) : (
                   <dd className="text-slate-500 italic">None (Specific Employee Task)</dd>
                 )}
               </div>
@@ -313,6 +324,38 @@ export function TaskDetail() {
               )}
             </dl>
           </Card>
+
+          <Card className="p-4 text-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Transfer History</h2>
+            <p className="text-xs text-slate-500 mb-3">Chronological assignment & transfer audit trail.</p>
+            {t.assignment_history && t.assignment_history.length > 0 ? (
+              <ol className="relative border-l border-slate-200 pl-4 space-y-3.5">
+                {t.assignment_history.map((a, idx) => (
+                  <li key={a.id} className="relative">
+                    <span className="absolute -left-[1.35rem] top-1 h-2.5 w-2.5 rounded-full bg-indigo-500 ring-2 ring-white" />
+                    <div className="text-xs font-semibold text-slate-800">
+                      {idx === 0 ? "Initial Assignment" : "Task Transferred"}
+                    </div>
+                    <div className="text-xs text-slate-700 mt-0.5">
+                      Assigned to <span className="font-medium text-slate-900">{a.assignee?.full_name ?? `#${a.id}`}</span>
+                      {a.assigned_by ? <span> by <span className="font-medium text-slate-900">{a.assigned_by.full_name}</span></span> : null}
+                    </div>
+                    {a.reason && (
+                      <p className="mt-1 rounded bg-slate-50 p-1.5 text-xs text-slate-600 italic border border-slate-100">
+                        “{a.reason}”
+                      </p>
+                    )}
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      {fmtDateTime(a.assigned_at, tz)}
+                      {a.unassigned_at ? ` · Handed over ${fmtDateTime(a.unassigned_at, tz)}` : " · Current"}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-xs text-slate-500 italic">No transfer records found.</p>
+            )}
+          </Card>
           {t.deadline && (
             <DeadlineCard
               t={t} tz={tz} onChange={() => toggle("deadline")} onRequest={() => toggle("extension")}
@@ -351,9 +394,18 @@ function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string,
     title: t.title,
     description: t.description ?? "",
     instructions: t.instructions ?? "",
-    head: t.head ? String(t.head.id) : "",
-    sub_head: t.sub_head ? String(t.sub_head.id) : "",
   });
+  const initialHeads = useMemo(() => {
+    if (t.heads && t.heads.length > 0) return t.heads.map((h) => h.id);
+    const arr: number[] = [];
+    if (t.head) arr.push(t.head.id);
+    if (t.sub_head) arr.push(t.sub_head.id);
+    return arr;
+  }, [t.head, t.sub_head, t.heads]);
+  const [selectedHeads, setSelectedHeads] = useState<number[]>(initialHeads);
+  const [headSearch, setHeadSearch] = useState("");
+  const [qaSearch, setQaSearch] = useState("");
+
   const initialQAs = useMemo(() => {
     if (t.qa_members && t.qa_members.length > 0) return t.qa_members.map((q) => q.id);
     if (t.qa) return [t.qa.id];
@@ -361,6 +413,18 @@ function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string,
   }, [t.qa, t.qa_members]);
   const [selectedQAs, setSelectedQAs] = useState<number[]>(initialQAs);
   const emps = useEmployees();
+  const filteredHeads = useMemo(
+    () => (emps.data ?? []).filter((e) => e.id !== t.assignee.id && (e.full_name.toLowerCase().includes(headSearch.toLowerCase()) || (e.job_title ?? "").toLowerCase().includes(headSearch.toLowerCase()))),
+    [emps.data, t.assignee.id, headSearch],
+  );
+  const filteredQAs = useMemo(
+    () => (emps.data ?? []).filter((e) => e.id !== t.assignee.id && (e.full_name.toLowerCase().includes(qaSearch.toLowerCase()) || (e.job_title ?? "").toLowerCase().includes(qaSearch.toLowerCase()))),
+    [emps.data, t.assignee.id, qaSearch],
+  );
+
+  const toggleHead = (id: number) => {
+    setSelectedHeads((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
   const toggleQA = (id: number) => {
     setSelectedQAs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -374,8 +438,9 @@ function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string,
             title: f.title,
             description: f.description,
             instructions: f.instructions || null,
-            head_employee_id: f.head ? Number(f.head) : null,
-            sub_head_employee_id: f.sub_head ? Number(f.sub_head) : null,
+            head_employee_id: selectedHeads[0] ?? null,
+            sub_head_employee_id: selectedHeads[1] ?? null,
+            head_employee_ids: selectedHeads,
             qa_employee_id: selectedQAs[0] ?? null,
             qa_employee_ids: selectedQAs,
           });
@@ -385,32 +450,57 @@ function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string,
         <div className="sm:col-span-2"><Field label="Title"><Input required minLength={3} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field></div>
         <div className="sm:col-span-2"><Field label="Description"><textarea required rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={textarea} /></Field></div>
         <div className="sm:col-span-2"><Field label="Instructions"><textarea rows={2} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} className={textarea} /></Field></div>
-        <Field label="Head (optional)">
-          <Select value={f.head} onChange={(e) => setF({ ...f, head: e.target.value })}>
-            <option value="">No head</option>
-            {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-          </Select>
-        </Field>
-        <Field label="SubHead (optional)">
-          <Select value={f.sub_head} onChange={(e) => setF({ ...f, sub_head: e.target.value })}>
-            <option value="">No sub-head</option>
-            {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-          </Select>
-        </Field>
+
         <div className="sm:col-span-2">
-          <Field label="QA Testers (optional, select multiple)">
-            <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
-              {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => (
-                <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 hover:bg-slate-50 p-1 rounded cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedQAs.includes(e.id)}
-                    onChange={() => toggleQA(e.id)}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span>{e.full_name}</span>
-                </label>
-              ))}
+          <Field label={`Responsible Heads (${selectedHeads.length} selected, multiple heads supported)`}>
+            <div className="space-y-1.5">
+              <Input
+                placeholder="Search heads..."
+                value={headSearch}
+                onChange={(e) => setHeadSearch(e.target.value)}
+                className="text-xs py-1"
+              />
+              <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
+                {filteredHeads.map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 hover:bg-slate-50 p-1 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedHeads.includes(e.id)}
+                      onChange={() => toggleHead(e.id)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</span>
+                  </label>
+                ))}
+                {filteredHeads.length === 0 && <p className="p-1 text-xs text-slate-400">No matching heads.</p>}
+              </div>
+            </div>
+          </Field>
+        </div>
+
+        <div className="sm:col-span-2">
+          <Field label={`QA Testers (${selectedQAs.length} selected, multiple QA members share one testing status)`}>
+            <div className="space-y-1.5">
+              <Input
+                placeholder="Search QA members..."
+                value={qaSearch}
+                onChange={(e) => setQaSearch(e.target.value)}
+                className="text-xs py-1"
+              />
+              <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
+                {filteredQAs.map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 hover:bg-slate-50 p-1 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedQAs.includes(e.id)}
+                      onChange={() => toggleQA(e.id)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</span>
+                  </label>
+                ))}
+                {filteredQAs.length === 0 && <p className="p-1 text-xs text-slate-400">No matching QA testers.</p>}
+              </div>
             </div>
           </Field>
         </div>
@@ -425,16 +515,16 @@ function ReassignPanel({ t, people, onSave, onClose }: { t: Task; people: Worklo
   const [reason, setReason] = useState("");
   const options = people.filter((p) => p.employee_id !== t.assignee.id && !p.is_me);
   return (
-    <Panel title="Reassign">
+    <Panel title="Transfer task to another employee">
       <form onSubmit={(e) => { e.preventDefault(); onSave({ assignee_id: Number(to), reason: reason || null }); }} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-        <Field label="Reassign to">
+        <Field label="Transfer to">
           <Select required value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="">Select…</option>
+            <option value="">Select employee…</option>
             {options.map((p) => <option key={p.employee_id} value={p.employee_id}>{p.full_name} — {p.open_tasks} open{p.overdue_tasks ? `, ${p.overdue_tasks} overdue` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Reason (optional)"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-        <Buttons cta="Reassign" onClose={onClose} />
+        <Field label="Transfer reason (required for audit trail)"><Input required minLength={3} placeholder="Reason for transfer" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Buttons cta="Transfer task" onClose={onClose} />
       </form>
     </Panel>
   );

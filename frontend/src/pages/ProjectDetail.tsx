@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Plus } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useMemo, useState, type FormEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { fmtDateTime, fmtDay, OverdueBadge, PriorityChip, StatusBadge, type Workload } from "@/components/task-ui";
 import { STATUS_TONE, useEmployees, type Person, type ProjectSummary } from "@/pages/Projects";
@@ -31,12 +31,18 @@ function stageLabel(stage: string | null) {
 export function ProjectDetail() {
   const { id } = useParams();
   const qc = useQueryClient();
+  const nav = useNavigate();
   const { me } = useAuth();
+  const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const q = useQuery({ queryKey: ["project", id], queryFn: () => api<Detail>(`/projects/${id}`), refetchInterval: 5000 });
   const refresh = () => { qc.invalidateQueries({ queryKey: ["project", id] }); qc.invalidateQueries({ queryKey: ["projects"] }); qc.invalidateQueries({ queryKey: ["tasks"] }); };
   const [note, setNote] = useState("");
   const complete = useMutation({ mutationFn: () => api(`/projects/${id}/complete`, { body: { note: note || null } }), onSuccess: refresh });
   const setStatus = useMutation({ mutationFn: (status: string) => api(`/projects/${id}`, { method: "PATCH", body: { status } }), onSuccess: refresh });
+  const deleteProject = useMutation({
+    mutationFn: () => api(`/projects/${id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["projects"] }); nav("/projects"); },
+  });
   const tz = me?.user.timezone;
   const d = q.data;
   if (q.isLoading) return <Spinner />;
@@ -51,12 +57,30 @@ export function ProjectDetail() {
     <>
       <PageHeader
         title={d.name}
-        subtitle={`${d.code} · ${d.counts.done_tasks}/${d.counts.tasks} tasks done · ${donePoints}/${d.points.length} points completed`}
-        actions={d.can_manage && d.status !== "completed" ? (
-          <Select className="w-40" value={d.status} onChange={(e) => setStatus.mutate(e.target.value)} aria-label="Project status">
-            <option value="active">Active</option><option value="on_hold">On hold</option><option value="archived">Archived</option>
-          </Select>
-        ) : undefined}
+        subtitle={`${d.code} · ${d.counts.done_tasks}/${d.counts.tasks} tasks done · ${donePoints}/${d.points.length} points completed${d.created_by ? ` · Created by ${d.created_by.full_name}` : ""}`}
+        actions={
+          <div className="flex items-center gap-2">
+            {isLeadership && d.can_manage && d.status !== "completed" && (
+              <Select className="w-40" value={d.status} onChange={(e) => setStatus.mutate(e.target.value)} aria-label="Project status">
+                <option value="active">Active</option><option value="on_hold">On hold</option><option value="archived">Archived</option>
+              </Select>
+            )}
+            {isLeadership && (
+              <Button
+                variant="outline"
+                className="text-red-600 hover:bg-red-50 hover:border-red-300"
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete project "${d.name}" and all its points/tasks?`)) {
+                    deleteProject.mutate();
+                  }
+                }}
+                disabled={deleteProject.isPending}
+              >
+                Delete project
+              </Button>
+            )}
+          </div>
+        }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Badge tone={STATUS_TONE[d.status] ?? "grey"}>{d.status.replace("_", " ")}</Badge>
@@ -146,21 +170,51 @@ export function ProjectDetail() {
 }
 
 function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
+  const { me } = useAuth();
+  const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const emps = useEmployees();
   const [editing, setEditing] = useState(false);
   const [assignee, setAssignee] = useState(d.assignee ? String(d.assignee.id) : "");
-  const [head, setHead] = useState(d.head ? String(d.head.id) : "");
-  const [subHead, setSubHead] = useState(d.sub_head ? String(d.sub_head.id) : "");
+  const [selectedHeads, setSelectedHeads] = useState<number[]>(() => {
+    if (d.heads && d.heads.length) return d.heads.map((h) => h.id);
+    const initial: number[] = [];
+    if (d.head) initial.push(d.head.id);
+    if (d.sub_head) initial.push(d.sub_head.id);
+    return initial;
+  });
   const [selectedQAs, setSelectedQAs] = useState<number[]>(d.qa_members ? d.qa_members.map((q) => q.id) : (d.qa ? [d.qa.id] : []));
   const [dates, setDates] = useState({ starts_on: d.starts_on ?? "", ends_on: d.ends_on ?? "" });
   const [team, setTeam] = useState<number[]>(d.members.map((m) => m.id));
+  const [headSearch, setHeadSearch] = useState("");
+  const [qaSearch, setQaSearch] = useState("");
+  const [teamSearch, setTeamSearch] = useState("");
+
+  const filteredHeads = useMemo(() => {
+    const q = headSearch.trim().toLowerCase();
+    if (!q) return emps.data ?? [];
+    return (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(q) || (e.job_title && e.job_title.toLowerCase().includes(q)));
+  }, [emps.data, headSearch]);
+
+  const filteredQAs = useMemo(() => {
+    const q = qaSearch.trim().toLowerCase();
+    if (!q) return emps.data ?? [];
+    return (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(q) || (e.job_title && e.job_title.toLowerCase().includes(q)));
+  }, [emps.data, qaSearch]);
+
+  const filteredTeam = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    if (!q) return emps.data ?? [];
+    return (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(q) || (e.job_title && e.job_title.toLowerCase().includes(q)));
+  }, [emps.data, teamSearch]);
+
   const save = useMutation({
     mutationFn: () => api(`/projects/${d.id}`, {
       method: "PATCH",
       body: {
         assignee_id: assignee ? Number(assignee) : null,
-        head_employee_id: head ? Number(head) : null,
-        sub_head_employee_id: subHead ? Number(subHead) : null,
+        head_employee_id: selectedHeads[0] ?? null,
+        sub_head_employee_id: selectedHeads[1] ?? null,
+        head_employee_ids: selectedHeads,
         qa_employee_id: selectedQAs[0] ?? null,
         qa_employee_ids: selectedQAs,
         member_ids: team,
@@ -172,12 +226,36 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
   });
   return (
     <Card className="p-5">
-      <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-brand-ink">Project team & leaders</h2>{d.can_manage && !editing && <Button variant="ghost" className="py-1" onClick={() => setEditing(true)}>Edit</Button>}</div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-brand-ink">Project team & leaders</h2>
+        {isLeadership && d.can_manage && !editing && (
+          <Button variant="ghost" className="py-1" onClick={() => setEditing(true)}>Edit</Button>
+        )}
+      </div>
       {!editing ? (
         <div className="space-y-3 text-sm">
-          <div><div className="text-xs text-slate-500">Assigned employee</div>{d.assignee ? <div className="font-medium text-brand-ink">{d.assignee.full_name}</div> : <div className="text-slate-500">No primary employee assigned</div>}</div>
-          <div><div className="text-xs text-slate-500">Project head</div>{d.head ? <div className="font-medium">{d.head.full_name}</div> : <div className="text-slate-500">None: fallback to department head</div>}</div>
-          <div><div className="text-xs text-slate-500">Project sub-head</div>{d.sub_head ? <div className="font-medium">{d.sub_head.full_name}</div> : <div className="text-slate-500">None: fallback to department sub-head</div>}</div>
+          {d.created_by && (
+            <div>
+              <div className="text-xs text-slate-500">Created by</div>
+              <div className="font-medium text-brand-ink">{d.created_by.full_name}</div>
+            </div>
+          )}
+          <div>
+            <div className="text-xs text-slate-500">Assigned employee</div>
+            {d.assignee ? <div className="font-medium text-brand-ink">{d.assignee.full_name}</div> : <div className="text-slate-500">No primary employee assigned</div>}
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Project heads & sub-heads</div>
+            {d.heads && d.heads.length > 0 ? (
+              <div className="font-medium text-brand-ink">{d.heads.map((h) => h.full_name).join(", ")}</div>
+            ) : d.head ? (
+              <div className="font-medium text-brand-ink">
+                {d.head.full_name}{d.sub_head ? `, ${d.sub_head.full_name} (Sub-Head)` : ""}
+              </div>
+            ) : (
+              <div className="text-slate-500">None: fallback to department head & sub-head</div>
+            )}
+          </div>
           <div>
             <div className="text-xs text-slate-500">Assigned QA members</div>
             {d.qa_members && d.qa_members.length ? (
@@ -188,31 +266,74 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
               <div className="text-slate-500">None: finished work goes straight to the head or CEO/Owner.</div>
             )}
           </div>
-          <div><div className="text-xs text-slate-500">Deadline</div><div>{d.ends_on ? <span className="font-medium">{d.ends_on}{d.starts_on ? ` (started ${d.starts_on})` : ""}</span> : <span className="text-slate-500">Not set: edit and add one</span>}</div></div>
-          <div><div className="text-xs text-slate-500">Team</div>{d.members.length ? <ul className="mt-1 space-y-0.5">{d.members.map((m) => <li key={m.id}>{m.full_name}</li>)}</ul> : <div className="text-slate-500">Open: tasks can go to anyone you can assign to.</div>}</div>
+          <div>
+            <div className="text-xs text-slate-500">Deadline</div>
+            <div>{d.ends_on ? <span className="font-medium">{d.ends_on}{d.starts_on ? ` (started ${d.starts_on})` : ""}</span> : <span className="text-slate-500">Not set: edit and add one</span>}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Team</div>
+            {d.members.length ? (
+              <ul className="mt-1 space-y-0.5">{d.members.map((m) => <li key={m.id}>{m.full_name}</li>)}</ul>
+            ) : (
+              <div className="text-slate-500">Open: tasks can go to anyone you can assign to.</div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
           <Field label="Assigned employee (optional)">
-            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}><option value="">No primary assignee</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
-          </Field>
-          <Field label="Project head">
-            <Select value={head} onChange={(e) => setHead(e.target.value)}><option value="">Fallback to department head</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
-          </Field>
-          <Field label="Project sub-head">
-            <Select value={subHead} onChange={(e) => setSubHead(e.target.value)}><option value="">Fallback to department sub-head</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
+            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+              <option value="">No primary assignee</option>
+              {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+            </Select>
           </Field>
           <div>
-            <div className="mb-1 text-xs font-medium text-slate-700">Assigned QA members ({selectedQAs.length} selected)</div>
+            <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-700">
+              <span>Project Heads / Sub-Heads ({selectedHeads.length} selected)</span>
+              <span className="text-slate-400">Can select multiple</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Search heads..."
+              value={headSearch}
+              onChange={(e) => setHeadSearch(e.target.value)}
+              className="mb-1 w-full rounded border border-hairline px-2 py-1 text-xs"
+            />
             <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
-              {emps.data?.map((e) => (
-                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-slate-50">
+              {filteredHeads.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedHeads.includes(e.id)}
+                    onChange={() => setSelectedHeads((curr) => curr.includes(e.id) ? curr.filter((x) => x !== e.id) : [...curr, e.id])}
+                  />
+                  <span>{e.full_name} {e.job_title ? `(${e.job_title})` : ""}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">If none selected, assigned employee's department Head & Sub-Head will be in loop automatically.</p>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-700">
+              <span>Assigned QA members ({selectedQAs.length} selected)</span>
+              <span className="text-slate-400">Can select multiple</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Search QA members..."
+              value={qaSearch}
+              onChange={(e) => setQaSearch(e.target.value)}
+              className="mb-1 w-full rounded border border-hairline px-2 py-1 text-xs"
+            />
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
+              {filteredQAs.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-slate-50">
                   <input
                     type="checkbox"
                     checked={selectedQAs.includes(e.id)}
                     onChange={() => setSelectedQAs((qas) => (qas.includes(e.id) ? qas.filter((x) => x !== e.id) : [...qas, e.id]))}
                   />
-                  <span>{e.full_name}</span>
+                  <span>{e.full_name} {e.job_title ? `(${e.job_title})` : ""}</span>
                 </label>
               ))}
             </div>
@@ -221,12 +342,24 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
             <Field label="Start date"><Input type="date" value={dates.starts_on} onChange={(e) => setDates({ ...dates, starts_on: e.target.value })} /></Field>
             <Field label="Project deadline (required)"><Input required type="date" min={dates.starts_on || undefined} value={dates.ends_on} onChange={(e) => setDates({ ...dates, ends_on: e.target.value })} /></Field>
           </div>
-          <div className="max-h-44 overflow-y-auto rounded-lg border border-hairline">
-            {emps.data?.map((e) => (
-              <label key={e.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-50">
-                <input type="checkbox" checked={team.includes(e.id)} onChange={() => setTeam((t) => (t.includes(e.id) ? t.filter((x) => x !== e.id) : [...t, e.id]))} /> {e.full_name}
-              </label>
-            ))}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-700">
+              <span>Team members ({team.length} selected)</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Search team members..."
+              value={teamSearch}
+              onChange={(e) => setTeamSearch(e.target.value)}
+              className="mb-1 w-full rounded border border-hairline px-2 py-1 text-xs"
+            />
+            <div className="max-h-44 overflow-y-auto rounded-lg border border-hairline p-1">
+              {filteredTeam.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-slate-50">
+                  <input type="checkbox" checked={team.includes(e.id)} onChange={() => setTeam((t) => (t.includes(e.id) ? t.filter((x) => x !== e.id) : [...t, e.id]))} /> {e.full_name} {e.job_title ? `(${e.job_title})` : ""}
+                </label>
+              ))}
+            </div>
           </div>
           <div className="flex gap-2"><Button disabled={save.isPending} onClick={() => save.mutate()}>Save</Button><Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
           <ErrorNote error={save.error} />
@@ -238,6 +371,7 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
 
 function Points({ d, onChanged }: { d: Detail; onChanged: () => void }) {
   const { me } = useAuth();
+  const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const [adding, setAdding] = useState(false);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [f, setF] = useState({ title: "", details: "", expected_result: "" });
@@ -251,13 +385,15 @@ function Points({ d, onChanged }: { d: Detail; onChanged: () => void }) {
   });
   const remove = useMutation({ mutationFn: (pid: number) => api(`/projects/${d.id}/points/${pid}`, { method: "DELETE" }), onSuccess: onChanged });
   const submit = (e: FormEvent) => { e.preventDefault(); add.mutate(); };
-  const editable = d.can_manage && d.status !== "archived";
-  const canToggle = editable || d.members.some((m) => m.id === me?.employee?.id) || d.assignee?.id === me?.employee?.id || d.head?.id === me?.employee?.id;
+  const canAddPoint = d.can_manage && d.status !== "archived";
+  const editable = isLeadership && d.can_manage && d.status !== "archived";
+  const isHead = (d.heads && d.heads.some((h) => h.id === me?.employee?.id)) || d.head?.id === me?.employee?.id || d.sub_head?.id === me?.employee?.id;
+  const canToggle = editable || d.members.some((m) => m.id === me?.employee?.id) || d.assignee?.id === me?.employee?.id || isHead;
   return (
     <Card>
       <div className="flex items-center justify-between p-4 pb-2">
         <h2 className="text-sm font-semibold text-brand-ink">Project points (checklist / scope)</h2>
-        {editable && <Button variant="outline" className="py-1.5" onClick={() => setAdding((v) => !v)}><Plus size={15} /> {adding ? "Close" : "Add a point"}</Button>}
+        {canAddPoint && <Button variant="outline" className="py-1.5" onClick={() => setAdding((v) => !v)}><Plus size={15} /> {adding ? "Close" : "Add a point"}</Button>}
       </div>
       {adding && (
         <form onSubmit={submit} className="mx-4 mb-3 grid gap-3 rounded-lg bg-slate-50 p-4 sm:grid-cols-2">
@@ -294,10 +430,10 @@ function Points({ d, onChanged }: { d: Detail; onChanged: () => void }) {
                   )}
                 </div>
                 <Badge tone={POINT_TONE[x.status]}>{POINT_LABEL[x.status]}</Badge>
-                {editable && (x.status === "open" || x.status === "cancelled") && (
+                {(x.status === "open" || x.status === "cancelled") && (
                   <div className="flex gap-1">
-                    <Button variant="outline" className="py-1" onClick={() => setAssigning(assigning === x.id ? null : x.id)}>{assigning === x.id ? "Close" : "Assign as task"}</Button>
-                    <Button variant="ghost" className="py-1 text-red-600" aria-label={`Remove ${x.title}`} onClick={() => confirm(`Remove “${x.title}”?`) && remove.mutate(x.id)}>Remove</Button>
+                    {d.can_manage && <Button variant="outline" className="py-1" onClick={() => setAssigning(assigning === x.id ? null : x.id)}>{assigning === x.id ? "Close" : "Assign as task"}</Button>}
+                    {isLeadership && <Button variant="ghost" className="py-1 text-red-600" aria-label={`Remove ${x.title}`} onClick={() => confirm(`Remove “${x.title}”?`) && remove.mutate(x.id)}>Remove</Button>}
                   </div>
                 )}
               </div>
@@ -314,7 +450,10 @@ function Points({ d, onChanged }: { d: Detail; onChanged: () => void }) {
 function AssignForm({ d, pointId, onDone }: { d: Detail; pointId: number; onDone: () => void }) {
   const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload") });
   const [f, setF] = useState({ assignee: "", priority: "medium", due: "" });
-  const allowed = new Set([...d.members.map((m) => m.id), ...(d.head ? [d.head.id] : [])]);
+  const headIds = (d.heads ?? []).map((h) => h.id);
+  if (d.head) headIds.push(d.head.id);
+  if (d.sub_head) headIds.push(d.sub_head.id);
+  const allowed = new Set([...d.members.map((m) => m.id), ...headIds]);
   const options = (people.data ?? []).filter((p) => !p.is_me && (allowed.size === 0 || allowed.has(p.employee_id)));
   const assign = useMutation({
     mutationFn: () => api(`/projects/${d.id}/points/${pointId}/assign`, { body: { assignee_id: Number(f.assignee), priority: f.priority, due_date: f.due } }),

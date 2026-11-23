@@ -14,7 +14,7 @@ from app.modules.notifications import outbox
 from app.modules.org.models import Department, Employee
 from app.modules.rbac.policy import Principal
 from app.modules.tasks import loop
-from app.modules.tasks.models import Project, ProjectMember, ProjectPoint, ProjectQAMember, Task
+from app.modules.tasks.models import Project, ProjectHead, ProjectMember, ProjectPoint, ProjectQAMember, Task
 from app.modules.workcal import service as cal
 
 LEADERSHIP_ROLES = {"owner", "ceo"}
@@ -59,7 +59,7 @@ def can_view(db: Session, p: Principal, pr: Project) -> bool:
     if not p.can_access_company(getattr(pr, "company_id", 1)):
         return False
     me = _me(p)
-    if p.has("project.manage") or me in (pr.assignee_id, pr.head_employee_id, getattr(pr, "sub_head_employee_id", None), pr.qa_employee_id) or me in team_ids(db, pr) or me in project_qa_ids(db, pr):
+    if p.has("project.manage") or me in (pr.assignee_id, pr.head_employee_id, getattr(pr, "sub_head_employee_id", None), pr.qa_employee_id) or me in loop.project_head_ids(db, pr) or me in team_ids(db, pr) or me in project_qa_ids(db, pr):
         return True
     return db.scalar(select(Task.id).where(Task.project_id == pr.id, or_(Task.assignee_id == me, Task.assigned_by_id == me)).limit(1)) is not None
 
@@ -105,6 +105,8 @@ def summary(db: Session, pr: Project) -> dict:
         "id": pr.id, "code": pr.code, "name": pr.name, "description": pr.description, "status": pr.status,
         "expected_result": pr.expected_result, "head": _person(db, pr.head_employee_id),
         "sub_head": _person(db, getattr(pr, "sub_head_employee_id", None)),
+        "heads": [_person(db, hid) for hid in loop.project_head_ids(db, pr)],
+        "created_by": _person(db, getattr(pr, "owner_employee_id", None)),
         "qa": _person(db, pr.qa_employee_id),
         "qa_members": [_person(db, qid) for qid in sorted(project_qa_ids(db, pr))],
         "assignee": _person(db, pr.assignee_id), "progress_pct": pr.progress_pct,
@@ -126,7 +128,7 @@ def can_head_submit(db: Session, p: Principal, pr: Project) -> bool:
     me = _me(p)
     if not me:
         return False
-    if me in (pr.head_employee_id, getattr(pr, "sub_head_employee_id", None)):
+    if me in loop.project_head_ids(db, pr):
         return True
     if pr.department_id:
         dept = db.get(Department, pr.department_id)
@@ -216,11 +218,35 @@ def _set_members(db: Session, p: Principal, pr: Project, ids: list[int]) -> None
     db.flush()
 
 
+def _set_heads(db: Session, p: Principal, pr: Project, head_ids: list[int] | None, request: Request | None) -> None:
+    if head_ids is None:
+        return
+    wanted = set(head_ids)
+    for hid in wanted:
+        _employee(db, hid, "project head")
+    have = set(db.scalars(select(ProjectHead.employee_id).where(ProjectHead.project_id == pr.id)))
+    for hid in have - wanted:
+        db.query(ProjectHead).filter(ProjectHead.project_id == pr.id, ProjectHead.employee_id == hid).delete()
+    for hid in wanted - have:
+        db.add(ProjectHead(project_id=pr.id, employee_id=hid))
+        _tell(db, p, "PROJECT_HEAD_NAMED", pr, db.get(Employee, hid))
+    ordered = [h for h in head_ids if h in wanted]
+    pr.head_employee_id = ordered[0] if len(ordered) > 0 else None
+    pr.sub_head_employee_id = ordered[1] if len(ordered) > 1 else None
+    db.flush()
+    resettle_reviews(db, p, pr, request)
+
+
 def _set_head(db: Session, p: Principal, pr: Project, head_id: int | None, request: Request | None) -> None:
     if head_id == pr.head_employee_id:
         return
+    old_head = pr.head_employee_id
     head = _employee(db, head_id, "project head") if head_id is not None else None
     pr.head_employee_id = head_id
+    if old_head:
+        db.query(ProjectHead).filter(ProjectHead.project_id == pr.id, ProjectHead.employee_id == old_head).delete()
+    if head_id:
+        db.add(ProjectHead(project_id=pr.id, employee_id=head_id))
     db.flush()
     if head is not None:
         _tell(db, p, "PROJECT_HEAD_NAMED", pr, head)
@@ -230,8 +256,13 @@ def _set_head(db: Session, p: Principal, pr: Project, head_id: int | None, reque
 def _set_sub_head(db: Session, p: Principal, pr: Project, sub_head_id: int | None, request: Request | None) -> None:
     if sub_head_id == getattr(pr, "sub_head_employee_id", None):
         return
+    old_sub = getattr(pr, "sub_head_employee_id", None)
     sub_head = _employee(db, sub_head_id, "project sub-head") if sub_head_id is not None else None
     pr.sub_head_employee_id = sub_head_id
+    if old_sub:
+        db.query(ProjectHead).filter(ProjectHead.project_id == pr.id, ProjectHead.employee_id == old_sub).delete()
+    if sub_head_id:
+        db.add(ProjectHead(project_id=pr.id, employee_id=sub_head_id))
     db.flush()
     if sub_head is not None:
         _tell(db, p, "PROJECT_SUB_HEAD_NAMED", pr, sub_head)
@@ -304,13 +335,14 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
     if not p.can_access_company(company_id):
         raise Forbidden("You cannot create projects for this company")
 
+    head_ids = d.get("head_employee_ids")
     head_id = d.get("head_employee_id")
     sub_head_id = d.get("sub_head_employee_id")
     assignee_id = d.get("assignee_id")
     member_ids = d.get("member_ids") or []
     department_id = d.get("department_id")
 
-    if head_id is None and sub_head_id is None:
+    if not head_ids and head_id is None and sub_head_id is None:
         target_emp = None
         if assignee_id:
             target_emp = db.get(Employee, assignee_id)
@@ -320,8 +352,21 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
         if dept_id:
             dept = db.get(Department, dept_id)
             if dept:
-                head_id = dept.head_employee_id
-                sub_head_id = getattr(dept, "sub_head_employee_id", None)
+                fallback_heads = []
+                if dept.head_employee_id:
+                    head_id = dept.head_employee_id
+                    fallback_heads.append(dept.head_employee_id)
+                if getattr(dept, "sub_head_employee_id", None):
+                    sub_head_id = dept.sub_head_employee_id
+                    fallback_heads.append(dept.sub_head_employee_id)
+                if fallback_heads:
+                    head_ids = fallback_heads
+    elif head_ids and not head_id:
+        head_id = head_ids[0]
+        if len(head_ids) > 1 and not sub_head_id:
+            sub_head_id = head_ids[1]
+    elif not head_ids and (head_id or sub_head_id):
+        head_ids = [h for h in (head_id, sub_head_id) if h]
 
     qa_ids = d.get("qa_employee_ids")
     if qa_ids is None and d.get("qa_employee_id"):
@@ -333,8 +378,9 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
                  assignee_id=assignee_id, progress_pct=0)
     db.add(pr)
     db.flush()
-    _set_head(db, p, pr, head_id, request)
-    _set_sub_head(db, p, pr, sub_head_id, request)
+    _set_heads(db, p, pr, head_ids or [], request)
+    if sub_head_id and not head_ids:
+        _set_sub_head(db, p, pr, sub_head_id, request)
     _set_qa_members(db, p, pr, qa_ids or [], request)
     _set_members(db, p, pr, member_ids)
     for pt in d.get("points") or []:
@@ -376,10 +422,14 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
             pr.status = d["status"]
     if pr.starts_on and pr.ends_on and pr.ends_on < pr.starts_on:
         raise AppError("INVALID_DATES", "End date cannot be before start date", 422)
-    if "head_employee_id" in d:
+    if "head_employee_ids" in d and d["head_employee_ids"] is not None:
+        before["heads"] = sorted(loop.project_head_ids(db, pr))
+        after["heads"] = sorted(d["head_employee_ids"])
+        _set_heads(db, p, pr, d["head_employee_ids"], request)
+    elif "head_employee_id" in d:
         before["head_employee_id"], after["head_employee_id"] = pr.head_employee_id, d["head_employee_id"]
         _set_head(db, p, pr, d["head_employee_id"], request)
-    if "sub_head_employee_id" in d:
+    if "sub_head_employee_id" in d and "head_employee_ids" not in d:
         before["sub_head_employee_id"], after["sub_head_employee_id"] = getattr(pr, "sub_head_employee_id", None), d["sub_head_employee_id"]
         _set_sub_head(db, p, pr, d["sub_head_employee_id"], request)
     if "qa_employee_ids" in d and d["qa_employee_ids"] is not None:
@@ -400,6 +450,18 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
         pr.progress_pct = d["progress_pct"]
     if after:
         audit.log(db, p.user.id, "PROJECT_UPDATED", "project", pr.id, before=before, after=after, request=request)
+
+
+def delete_project(db: Session, p: Principal, project_id: int, request: Request) -> None:
+    pr = get_project(db, project_id)
+    db.query(ProjectPoint).filter(ProjectPoint.project_id == pr.id).delete()
+    db.query(ProjectHead).filter(ProjectHead.project_id == pr.id).delete()
+    db.query(ProjectQAMember).filter(ProjectQAMember.project_id == pr.id).delete()
+    db.query(ProjectMember).filter(ProjectMember.project_id == pr.id).delete()
+    db.query(Task).filter(Task.project_id == pr.id).update({"project_id": None})
+    audit.log(db, p.user.id, "PROJECT_DELETED", "project", pr.id, before={"code": pr.code, "name": pr.name}, request=request)
+    db.delete(pr)
+    db.flush()
 
 
 # ---------------------------------------------------------------- points
@@ -487,7 +549,10 @@ def assign_point(db: Session, p: Principal, pr: Project, point_id: int, d: dict,
     body = {
         "title": x.title, "description": "\n\n".join(s for s in (x.details, f"Expected result: {x.expected_result}" if x.expected_result else None) if s) or x.title,
         "instructions": d.get("instructions"), "assignee_id": d["assignee_id"], "priority": d["priority"], "due_date": d["due_date"],
-        "head_employee_id": d.get("head_employee_id"), "qa_employee_id": d.get("qa_employee_id"), "start_date": d.get("start_date"), "estimated_hours": d.get("estimated_hours"), "project_id": pr.id,
+        "head_employee_id": d.get("head_employee_id"), "sub_head_employee_id": d.get("sub_head_employee_id"),
+        "head_employee_ids": d.get("head_employee_ids"),
+        "qa_employee_id": d.get("qa_employee_id"), "qa_employee_ids": d.get("qa_employee_ids"),
+        "start_date": d.get("start_date"), "estimated_hours": d.get("estimated_hours"), "project_id": pr.id,
         "category_id": d.get("category_id"), "type_id": d.get("type_id"),
     }  # fmt: skip
     task, warnings = service.create_task(db, p, body, request)

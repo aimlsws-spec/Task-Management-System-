@@ -11,7 +11,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission
 log = logging.getLogger("tms.rbac")
 
 # Bump when the default matrix changes; system roles are then reset to the new defaults once.
-SEED_VERSION = 7  # v7: sub_head role and CEO company org management permissions
+SEED_VERSION = 8  # v8: task.edit and task.cancel restricted strictly to Owner and CEO
 
 # code -> (category, description)
 PERMISSIONS: dict[str, tuple[str, str]] = {
@@ -83,9 +83,10 @@ def _matrix() -> dict[str, dict[str, str]]:
         "employee.view": org, "employee.manage": org, "department.manage": org, "hierarchy.manage": org,
         "audit.view": org, "dashboard.view": "self"
     }
-    manager = {c: "team" for c in _MGMT_TASK}
-    head = {c: "department" for c in _MGMT_TASK}
-    sub_head = {c: "department" for c in _MGMT_TASK}
+    mgmt_common = [c for c in _MGMT_TASK if c not in ("task.edit", "task.cancel")]
+    manager = {c: "team" for c in mgmt_common}
+    head = {c: "department" for c in mgmt_common}
+    sub_head = {c: "department" for c in mgmt_common}
     employee = {
         c: "self"
         for c in (

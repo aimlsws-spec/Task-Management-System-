@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.org.models import Department, Employee
 from app.modules.rbac.models import Role, UserRole
-from app.modules.tasks.models import Project, ProjectMember, ProjectQAMember, Task, TaskQAMember
+from app.modules.tasks.models import Project, ProjectHead, ProjectMember, ProjectQAMember, Task, TaskHead, TaskQAMember
 
 STAGE_ORDER = ("qa", "head", "leadership")
 
@@ -24,27 +24,47 @@ def _assignee_department(db: Session, t: Task) -> Department | None:
     return db.get(Department, emp.department_id) if emp is not None else None
 
 
+def task_head_ids(db: Session, t: Task) -> list[int]:
+    """Returns explicit task head IDs from task_heads table and/or head_employee_id/sub_head_employee_id."""
+    ids = list(db.scalars(select(TaskHead.employee_id).where(TaskHead.task_id == t.id)))
+    for h in (t.head_employee_id, getattr(t, "sub_head_employee_id", None)):
+        if h and h not in ids:
+            ids.append(h)
+    return ids
+
+
+def project_head_ids(db: Session, pr: Project) -> list[int]:
+    """Returns explicit project head IDs from project_heads table and/or head_employee_id/sub_head_employee_id."""
+    ids = list(db.scalars(select(ProjectHead.employee_id).where(ProjectHead.project_id == pr.id)))
+    for h in (pr.head_employee_id, getattr(pr, "sub_head_employee_id", None)):
+        if h and h not in ids:
+            ids.append(h)
+    return ids
+
+
 def effective_heads(db: Session, t: Task) -> list[int]:
     """
     Returns the list of responsible heads/subheads for this task following the 4-tier fallback:
-    1. Explicit task head/subhead if set.
-    2. Else explicit project head/subhead if set.
+    1. Explicit task head/subhead if set (supports multiple heads).
+    2. Else explicit project head/subhead if set (supports multiple heads).
     3. Else fallback to the assignee's department head and subhead.
     4. If department has no head and no subhead: returns [] (specific employee task).
     Excludes the assignee themselves (cannot review self).
     """
     heads: list[int] = []
     # 1. Task level
-    if t.head_employee_id or getattr(t, "sub_head_employee_id", None):
-        for h in (t.head_employee_id, getattr(t, "sub_head_employee_id", None)):
-            if h and h not in heads:
+    t_heads = task_head_ids(db, t)
+    if t_heads:
+        for h in t_heads:
+            if h not in heads:
                 heads.append(h)
     # 2. Project level
     elif t.project_id:
         pr = db.get(Project, t.project_id)
-        if pr and (pr.head_employee_id or getattr(pr, "sub_head_employee_id", None)):
-            for h in (pr.head_employee_id, getattr(pr, "sub_head_employee_id", None)):
-                if h and h not in heads:
+        if pr:
+            pr_heads = project_head_ids(db, pr)
+            for h in pr_heads:
+                if h not in heads:
                     heads.append(h)
     # 3. Department fallback
     if not heads:
@@ -64,13 +84,15 @@ def effective_heads(db: Session, t: Task) -> list[int]:
 
 def named_head_id(db: Session, t: Task) -> int | None:
     """A head somebody chose for this task or its project (not the department fallback)."""
-    if t.head_employee_id:
-        return t.head_employee_id
-    if getattr(t, "sub_head_employee_id", None):
-        return t.sub_head_employee_id
-    pr = db.get(Project, t.project_id) if t.project_id else None
-    if pr:
-        return pr.head_employee_id or getattr(pr, "sub_head_employee_id", None)
+    t_heads = task_head_ids(db, t)
+    if t_heads:
+        return t_heads[0]
+    if t.project_id:
+        pr = db.get(Project, t.project_id)
+        if pr:
+            pr_heads = project_head_ids(db, pr)
+            if pr_heads:
+                return pr_heads[0]
     return None
 
 
@@ -188,6 +210,7 @@ def loop_employee_ids(db: Session, t: Task) -> list[int]:
         pr = db.get(Project, t.project_id)
         if pr is not None:
             ids += [pr.head_employee_id, getattr(pr, "sub_head_employee_id", None), pr.qa_employee_id, pr.owner_employee_id]
+            ids += project_head_ids(db, pr)
             ids += list(db.scalars(select(ProjectMember.employee_id).where(ProjectMember.project_id == pr.id)))
             ids += list(db.scalars(select(ProjectQAMember.employee_id).where(ProjectQAMember.project_id == pr.id)))
     seen: list[int] = []

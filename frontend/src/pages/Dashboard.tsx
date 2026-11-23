@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { FolderPlus, PlusCircle } from "lucide-react";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type DelayQueue, type TaskPage, type Workload } from "@/components/task-ui";
 import { OverviewPanel } from "@/components/Overview";
@@ -13,6 +14,8 @@ export function Dashboard() {
   const [params, setParams] = useSearchParams();
   const name = me?.employee?.full_name ?? me?.user.email;
   const isOwner = Boolean(me?.roles?.includes("owner"));
+  const isCEO = Boolean(me?.roles?.includes("ceo"));
+  const isLeadership = isOwner || isCEO;
 
   // Admin has no task permissions, so Admin always sees AdminDashboard
   if (!can("task.view")) {
@@ -75,6 +78,31 @@ export function Dashboard() {
         )}
       </div>
       <div className="space-y-5">
+        {isLeadership && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 p-3.5 border border-indigo-100 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-xs shadow-sm">⚡</span>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Quick Actions</div>
+                <div className="text-xs text-slate-500">Fast action tabs for Owner & CEO panels</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/tasks/new"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+              >
+                <PlusCircle size={15} /> Assign Task
+              </Link>
+              <Link
+                to="/projects?new=1"
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+              >
+                <FolderPlus size={15} /> Assign Project
+              </Link>
+            </div>
+          </div>
+        )}
         <ReviewWaiting />
         {can("task.assign") && <Attention />}
         {me?.permissions["task.view"] !== "self" && <OverviewPanel />}

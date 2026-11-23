@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -10,7 +10,8 @@ export type Person = { id: number; full_name: string; job_title: string | null }
 export type ProjectSummary = {
   id: number; code: string; name: string; description: string | null; status: string; expected_result: string | null;
   company_id?: number;
-  head: Person | null; sub_head?: Person | null; qa: Person | null; qa_members?: Person[];
+  head: Person | null; sub_head?: Person | null; heads?: Person[]; qa: Person | null; qa_members?: Person[];
+  created_by?: Person | null;
   head_reviewed_at?: string | null; head_reviewed_by?: string | null; head_review_note?: string | null;
   can_head_complete?: boolean; can_complete?: boolean;
   starts_on: string | null; ends_on: string | null; ready_for_review: boolean;
@@ -28,8 +29,9 @@ export function useEmployees() {
 /** Projects: what the Owner/CEO wants (expected result), who heads it, the team, and the points to be assigned over time. */
 export function Projects() {
   const { can } = useAuth();
+  const [sp] = useSearchParams();
   const list = useQuery({ queryKey: ["projects"], queryFn: () => api<ProjectSummary[]>("/projects"), refetchInterval: 6000 });
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(sp.get("new") === "1");
   return (
     <>
       <PageHeader
@@ -57,7 +59,7 @@ export function Projects() {
                 <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500 transition-[width]" style={{ width: `${pct}%` }} /></div>
                 <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-slate-500">
                   <span>{p.counts.done_tasks}/{p.counts.tasks} tasks done · {p.counts.open_points} point{p.counts.open_points === 1 ? "" : "s"} still to assign</span>
-                  <span>{p.ends_on ? `Deadline ${p.ends_on}` : "No deadline set"} · {p.head ? `Head: ${p.head.full_name}` : "No head: assign directly"}{p.qa ? ` · QA: ${p.qa.full_name}` : ""}</span>
+                  <span>{p.ends_on ? `Deadline ${p.ends_on}` : "No deadline set"} · {p.heads && p.heads.length > 0 ? `Heads: ${p.heads.map((h) => h.full_name).join(", ")}` : p.head ? `Head: ${p.head.full_name}` : "No head: assign directly"}{p.qa_members && p.qa_members.length > 0 ? ` · QA: ${p.qa_members.map((q) => q.full_name).join(", ")}` : p.qa ? ` · QA: ${p.qa.full_name}` : ""}</span>
                 </div>
               </Link>
             );
@@ -73,20 +75,33 @@ function CreateProject({ onDone }: { onDone: () => void }) {
   const nav = useNavigate();
   const emps = useEmployees();
   const today = new Date().toISOString().slice(0, 10);
-  const [f, setF] = useState({ name: "", description: "", expected_result: "", head: "", sub_head: "", starts_on: today, ends_on: "" });
+  const [f, setF] = useState({ name: "", description: "", expected_result: "", starts_on: today, ends_on: "" });
   const [assignee, setAssignee] = useState("");
   const [team, setTeam] = useState<number[]>([]);
+  const [selectedHeads, setSelectedHeads] = useState<number[]>([]);
   const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
+  const [headSearch, setHeadSearch] = useState("");
+  const [qaSearch, setQaSearch] = useState("");
   const [points, setPoints] = useState([{ title: "", expected_result: "" }]);
   const [search, setSearch] = useState("");
   const shown = useMemo(() => (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(search.toLowerCase())), [emps.data, search]);
+  const filteredHeads = useMemo(
+    () => (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(headSearch.toLowerCase()) || (e.job_title ?? "").toLowerCase().includes(headSearch.toLowerCase())),
+    [emps.data, headSearch],
+  );
+  const filteredQAs = useMemo(
+    () => (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(qaSearch.toLowerCase()) || (e.job_title ?? "").toLowerCase().includes(qaSearch.toLowerCase())),
+    [emps.data, qaSearch],
+  );
+
   const create = useMutation({
     mutationFn: () => api<{ id: number }>("/projects", {
       body: {
         name: f.name, description: f.description || null, expected_result: f.expected_result || null,
         assignee_id: assignee ? Number(assignee) : null,
-        head_employee_id: f.head ? Number(f.head) : null,
-        sub_head_employee_id: f.sub_head ? Number(f.sub_head) : null,
+        head_employee_id: selectedHeads[0] ?? null,
+        sub_head_employee_id: selectedHeads[1] ?? null,
+        head_employee_ids: selectedHeads,
         qa_employee_id: selectedQAs[0] ?? null,
         qa_employee_ids: selectedQAs,
         member_ids: team,
@@ -99,6 +114,7 @@ function CreateProject({ onDone }: { onDone: () => void }) {
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = (e: FormEvent) => { e.preventDefault(); create.mutate(); };
   const toggle = (id: number) => setTeam((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+  const toggleHead = (id: number) => setSelectedHeads((heads) => (heads.includes(id) ? heads.filter((x) => x !== id) : [...heads, id]));
   const toggleQA = (id: number) => setSelectedQAs((qas) => (qas.includes(id) ? qas.filter((x) => x !== id) : [...qas, id]));
   return (
     <Card className="mb-6 p-5">
@@ -113,33 +129,44 @@ function CreateProject({ onDone }: { onDone: () => void }) {
               {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
             </Select>
           </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Project head (optional)">
-              <Select value={f.head} onChange={set("head")}>
-                <option value="">Fallback to department head</option>
-                {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
-              </Select>
-            </Field>
-            <Field label="Project sub-head (optional)">
-              <Select value={f.sub_head} onChange={set("sub_head")}>
-                <option value="">Fallback to department sub-head</option>
-                {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
-              </Select>
-            </Field>
+          <div>
+            <div className="mb-1 text-xs font-medium text-slate-700">Project Heads ({selectedHeads.length} selected, multiple heads supported)</div>
+            <Input
+              placeholder="Search heads / sub-heads..."
+              value={headSearch}
+              onChange={(e) => setHeadSearch(e.target.value)}
+              className="text-xs py-1 mb-1.5"
+            />
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
+              {filteredHeads.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-slate-50">
+                  <input type="checkbox" checked={selectedHeads.includes(e.id)} onChange={() => toggleHead(e.id)} />
+                  <span>{e.full_name} <span className="text-xs text-slate-400">· {e.job_title}</span></span>
+                </label>
+              ))}
+              {filteredHeads.length === 0 && <p className="p-1 text-xs text-slate-400">No matching heads.</p>}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">If no head is selected, it falls back to the employee's department head and sub-head.</p>
           </div>
           <div>
             <div className="mb-1 text-xs font-medium text-slate-700">Assigned QA members ({selectedQAs.length} selected, optional)</div>
+            <Input
+              placeholder="Search QA members..."
+              value={qaSearch}
+              onChange={(e) => setQaSearch(e.target.value)}
+              className="text-xs py-1 mb-1.5"
+            />
             <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
-              {emps.data?.map((e) => (
+              {filteredQAs.map((e) => (
                 <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-slate-50">
                   <input type="checkbox" checked={selectedQAs.includes(e.id)} onChange={() => toggleQA(e.id)} />
                   <span>{e.full_name} <span className="text-xs text-slate-400">· {e.job_title}</span></span>
                 </label>
               ))}
+              {filteredQAs.length === 0 && <p className="p-1 text-xs text-slate-400">No matching QA testers.</p>}
             </div>
             <p className="mt-1 text-xs text-slate-500">Multiple QA members can be assigned and share one unified testing status.</p>
           </div>
-          <p className="-mt-2 text-xs text-slate-500">If neither head nor sub-head is selected, it falls back to the employee's department head and sub-head.</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Start date"><Input type="date" value={f.starts_on} onChange={set("starts_on")} /></Field>
             <Field label="Project deadline (required)"><Input required type="date" min={f.starts_on || today} value={f.ends_on} onChange={set("ends_on")} /></Field>

@@ -56,6 +56,16 @@ class Project(Base):
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ProjectHead(Base):
+    """Multiple heads/subheads assigned to a project."""
+
+    __tablename__ = "project_heads"
+
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), primary_key=True)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
+
+
 class ProjectQAMember(Base):
     """Multiple QA members assigned to a project."""
 
@@ -179,6 +189,16 @@ class TaskQAMember(Base):
     """Multiple QA members assigned to a task."""
 
     __tablename__ = "task_qa_members"
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), primary_key=True)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
+
+
+class TaskHead(Base):
+    """Multiple heads/subheads assigned to a task."""
+
+    __tablename__ = "task_heads"
 
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), primary_key=True)

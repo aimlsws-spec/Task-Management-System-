@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from app.modules.org.models import Department, Employee
-from tests.helpers import API, DEVHEAD, FE, ABC, SUPPORT, eid, make, do, ok
+from tests.helpers import API, DEVHEAD, FE, ABC, SUPPORT, HRHEAD, eid, make, do, ok
 
 
 FINISH_OK = {"summary": "Implemented and verified the chatbot API.", "tested": True, "no_time_reason": "Quick change, done in minutes"}
@@ -167,3 +167,157 @@ def test_two_tier_project_review(client, as_user, seeded):
     r = client.post(f"{API}/projects/{pid}/complete", headers=as_user("owner"), json={"note": "Executive sign-off"})
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
+
+
+def test_multiple_heads_task_and_fallback(client, as_user, seeded):
+    dev_id = eid(seeded, DEVHEAD)
+    fe_id = eid(seeded, FE)
+    abc_id = eid(seeded, ABC)
+
+    # 1. Admin/Owner sets FE as DEV department SubHead
+    with seeded() as s:
+        d = s.query(Department).filter(Department.code == "DEV").first()
+        dept_id = d.id
+    client.put(f"{API}/departments/{dept_id}/subhead", headers=as_user("admin"), json={"sub_head_employee_id": fe_id})
+
+    # 2. Create task specifying multiple heads (DEVHEAD and FE)
+    r = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Multi-Head Feature", "description": "Testing multiple heads",
+        "assignee_id": abc_id, "priority": "high",
+        "due_date": str(date.today() + timedelta(days=7)),
+        "head_employee_ids": [dev_id, fe_id],
+    })
+    assert r.status_code == 201
+    t = r.json()["task"]
+    head_ids = {h["id"] for h in t.get("heads", [])}
+    assert head_ids == {dev_id, fe_id}
+
+    # 3. Create task WITHOUT specifying heads -> auto fallback to employee's department Head & SubHead
+    r2 = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Fallback Head Feature", "description": "Testing fallback heads",
+        "assignee_id": abc_id, "priority": "medium",
+        "due_date": str(date.today() + timedelta(days=5)),
+    })
+    assert r2.status_code == 201
+    t2 = r2.json()["task"]
+    head_ids_fallback = {h["id"] for h in t2.get("heads", [])}
+    assert dev_id in head_ids_fallback
+    assert fe_id in head_ids_fallback
+
+
+def test_edit_and_delete_authority_strictly_owner_ceo(client, as_user, seeded):
+    dev_id = eid(seeded, DEVHEAD)
+    fe_id = eid(seeded, FE)
+    abc_id = eid(seeded, ABC)
+
+    # Create a task
+    r = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Protected Task", "description": "Only Owner/CEO can edit/cancel",
+        "assignee_id": abc_id, "priority": "medium",
+        "due_date": str(date.today() + timedelta(days=5)),
+        "head_employee_ids": [dev_id, fe_id],
+    })
+    assert r.status_code == 201
+    tid = r.json()["task"]["id"]
+
+    # 1. Dev Head, SubHead (fe), and Assignee attempt to edit task -> all 403
+    for user in ["devhead", "frontend", "abc"]:
+        r_edit = client.patch(f"{API}/tasks/{tid}", headers=as_user(user), json={"title": "Hacked Title"})
+        assert r_edit.status_code == 403, f"{user} was allowed to edit task"
+
+    # Admin also cannot edit
+    assert client.patch(f"{API}/tasks/{tid}", headers=as_user("admin"), json={"title": "Hacked Title"}).status_code in (403, 404)
+
+    # 2. Owner can edit task -> 200
+    r_owner = client.patch(f"{API}/tasks/{tid}", headers=as_user("owner"), json={"title": "Owner Renamed Task"})
+    assert r_owner.status_code == 200
+
+    # 3. CEO can edit task -> 200
+    r_ceo = client.patch(f"{API}/tasks/{tid}", headers=as_user("ceo"), json={"title": "CEO Renamed Task"})
+    assert r_ceo.status_code == 200
+
+    # 4. Dev Head, SubHead attempt to cancel task -> 403
+    for user in ["devhead", "frontend"]:
+        r_cancel = client.post(f"{API}/tasks/{tid}/cancel", headers=as_user(user), json={"reason": "Cancel attempt"})
+        assert r_cancel.status_code == 403, f"{user} was allowed to cancel task"
+
+    # Admin also cannot cancel
+    assert client.post(f"{API}/tasks/{tid}/cancel", headers=as_user("admin"), json={"reason": "Cancel attempt"}).status_code in (403, 404)
+
+    # 5. Owner can cancel task -> 200
+    r_cancel_owner = client.post(f"{API}/tasks/{tid}/cancel", headers=as_user("owner"), json={"reason": "Executive cancel"})
+    assert r_cancel_owner.status_code == 200
+
+    # 6. Projects: Create project
+    r_p = client.post(f"{API}/projects", headers=as_user("owner"), json={
+        "name": "Protected Project", "ends_on": str(date.today() + timedelta(days=10)),
+        "points": [{"title": "Scope 1"}],
+    })
+    assert r_p.status_code == 201
+    pid = r_p.json()["id"]
+    point_id = r_p.json()["points"][0]["id"]
+
+    # Dev Head, Admin attempt to edit project -> 403 or 404
+    for user in ["devhead", "admin"]:
+        assert client.patch(f"{API}/projects/{pid}", headers=as_user(user), json={"name": "Hacked"}).status_code in (403, 404)
+        assert client.delete(f"{API}/projects/{pid}/points/{point_id}", headers=as_user(user)).status_code in (403, 404)
+        assert client.delete(f"{API}/projects/{pid}", headers=as_user(user)).status_code in (403, 404)
+
+    # CEO can edit project -> 200
+    assert client.patch(f"{API}/projects/{pid}", headers=as_user("ceo"), json={"name": "CEO Renamed"}).status_code == 200
+
+    # Owner can delete point and delete project
+    assert client.delete(f"{API}/projects/{pid}/points/{point_id}", headers=as_user("owner")).status_code == 204
+    assert client.delete(f"{API}/projects/{pid}", headers=as_user("owner")).status_code == 204
+
+
+def test_task_transfer_and_history(client, as_user, seeded):
+    fe_id = eid(seeded, FE)
+    abc_id = eid(seeded, ABC)
+
+    # 1. Owner creates task assigned to abc
+    r = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Transferrable Task", "description": "Track audit trail",
+        "assignee_id": abc_id, "priority": "medium",
+        "due_date": str(date.today() + timedelta(days=5)),
+    })
+    assert r.status_code == 201
+    tid = r.json()["task"]["id"]
+
+    # 2. Devhead transfers task to FE
+    r_reassign1 = client.post(f"{API}/tasks/{tid}/reassign", headers=as_user("devhead"), json={
+        "assignee_id": fe_id, "reason": "Handing off to FE specialist",
+    })
+    assert r_reassign1.status_code == 200
+
+    # 3. CEO transfers task back to ABC
+    r_reassign2 = client.post(f"{API}/tasks/{tid}/reassign", headers=as_user("ceo"), json={
+        "assignee_id": abc_id, "reason": "CEO transfer back to ABC",
+    })
+    assert r_reassign2.status_code == 200
+
+    # 4. Check TaskDetail includes assignment_history
+    detail = client.get(f"{API}/tasks/{tid}", headers=as_user("owner")).json()
+    history = detail.get("assignment_history", [])
+    assert len(history) >= 2  # initial + transfers
+    # Check that latest assignee is ABC
+    assert detail["assignee"]["id"] == abc_id
+    # Check reasons in history
+    reasons = [h.get("reason") for h in history if h.get("reason")]
+    assert "Handing off to FE specialist" in reasons
+    assert "CEO transfer back to ABC" in reasons
+
+
+def test_cross_department_peer_head_assignment(client, as_user, seeded):
+    hr_id = eid(seeded, HRHEAD)
+
+    # Devhead assigns task to HRHEAD (peer department head in same company)
+    r = client.post(f"{API}/tasks", headers=as_user("devhead"), json={
+        "title": "Cross Department Task", "description": "From Dev Head to HR Head",
+        "assignee_id": hr_id, "priority": "medium",
+        "due_date": str(date.today() + timedelta(days=3)),
+    })
+    assert r.status_code == 201
+    t = r.json()["task"]
+    assert t["assignee"]["id"] == hr_id
+

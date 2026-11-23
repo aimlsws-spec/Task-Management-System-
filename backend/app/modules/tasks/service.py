@@ -25,11 +25,13 @@ from app.modules.tasks.models import (
     TERMINAL,
     ExtensionRequest,
     Project,
+    ProjectHead,
     ProjectQAMember,
     Task,
     TaskAssignment,
     TaskCategory,
     TaskDeadlineHistory,
+    TaskHead,
     TaskQAMember,
     TaskStatusHistory,
     TaskType,
@@ -39,6 +41,11 @@ from app.modules.workcal import service as cal
 
 DEFAULT_ESTIMATE_HOURS = 8  # nobody types an effort estimate any more; this keeps workload numbers defined
 SELF_STATES = ("active", "on_leave")  # employees who can hold tasks
+LEADERSHIP_ROLES = {"owner", "ceo"}
+
+
+def is_leadership(p: Principal) -> bool:
+    return bool(set(p.roles) & LEADERSHIP_ROLES) or getattr(p, "is_owner", False)
 
 
 def z(dt: datetime | None) -> str | None:
@@ -63,6 +70,7 @@ def visible_clause(p: Principal):
                 Project.sub_head_employee_id == me,
                 Project.qa_employee_id == me,
                 Project.id.in_(select(ProjectQAMember.project_id).where(ProjectQAMember.employee_id == me)),
+                Project.id.in_(select(ProjectHead.project_id).where(ProjectHead.employee_id == me)),
             )
         )
     )
@@ -80,6 +88,7 @@ def visible_clause(p: Principal):
         )
     )
     task_qa = Task.id.in_(select(TaskQAMember.task_id).where(TaskQAMember.employee_id == me))
+    task_head = Task.id.in_(select(TaskHead.task_id).where(TaskHead.employee_id == me))
     return and_(
         company_filter,
         or_(
@@ -87,6 +96,7 @@ def visible_clause(p: Principal):
             Task.assigned_by_id == me,
             Task.head_employee_id == me,
             Task.sub_head_employee_id == me,
+            task_head,
             Task.qa_employee_id == me,
             task_qa,
             heads_project,
@@ -146,6 +156,8 @@ def can_manage(p: Principal, t: Task, perm: str) -> bool:
     """Holds `perm` and the task belongs to someone in that permission's scope, or I created it."""
     if not p.has(perm):
         return False
+    if perm in ("task.edit", "task.cancel") and not is_leadership(p):
+        return False
     me = p.employee.id if p.employee else -1
     return t.assigned_by_id == me or p.can_see(perm, t.assignee_id)
 
@@ -156,12 +168,19 @@ def is_peer_head(db: Session, p: Principal, assignee: Employee) -> bool:
         return False
     from app.modules.notifications.resolver import role_codes
 
+    if p.employee and getattr(p.employee, "company_id", None) and getattr(assignee, "company_id", None):
+        if p.employee.company_id != assignee.company_id:
+            return False
     return "department_head" in role_codes(db, assignee.user_id)
 
 
 def assert_assignable(db: Session, p: Principal, assignee: Employee | None) -> Employee:
     """Who may receive a task from this person: in their assign-scope, not above their rank, not themselves."""
-    if assignee is None or not (p.can_see("task.assign", assignee.id) or is_peer_head(db, p, assignee)):
+    if assignee is None:
+        raise NotFound("Employee")  # outside scope == not found
+    if getattr(assignee, "company_id", None) and not p.can_access_company(assignee.company_id):
+        raise NotFound("Employee")
+    if not (p.can_see("task.assign", assignee.id) or is_peer_head(db, p, assignee)):
         raise NotFound("Employee")  # outside scope == not found
     if p.employee is not None and assignee.id == p.employee.id:
         raise AppError("SELF_ASSIGN_NOT_ALLOWED", "You cannot assign a task to yourself", 422)
@@ -205,6 +224,7 @@ def task_dict(db: Session, t: Task, assignee: Employee | None = None, assigner: 
         "assignee": _person(assignee), "assigned_by": _person(assigner), "department_id": t.department_id,
         "head": _person(db.get(Employee, loop.head_id(db, t))) if loop.head_id(db, t) else None,
         "sub_head": _person(db.get(Employee, loop.sub_head_id(db, t))) if loop.sub_head_id(db, t) else None,
+        "heads": [_person(db.get(Employee, eid)) for eid in loop.effective_heads(db, t)],
         "qa": _person(db.get(Employee, loop.qa_id(db, t))) if loop.qa_id(db, t) else None,
         "qa_members": [_person(db.get(Employee, eid)) for eid in loop.qa_ids(db, t)],
         "project_id": t.project_id, "category_id": t.category_id, "type_id": t.type_id,
@@ -215,8 +235,22 @@ def task_dict(db: Session, t: Task, assignee: Employee | None = None, assigner: 
         "acknowledged_at": z(t.acknowledged_at), "completed_at": z(t.completed_at),
     }  # fmt: skip
     if detail:
+        assignments = db.scalars(select(TaskAssignment).where(TaskAssignment.task_id == t.id).order_by(TaskAssignment.assigned_at.asc())).all()
+        history = []
+        for a in assignments:
+            assignee_emp = db.get(Employee, a.assignee_id)
+            assigner_emp = db.get(Employee, a.assigned_by_id)
+            history.append({
+                "id": a.id,
+                "assignee": _person(assignee_emp),
+                "assigned_by": _person(assigner_emp),
+                "assigned_at": z(a.assigned_at),
+                "unassigned_at": z(a.unassigned_at),
+                "reason": a.reason,
+            })
         out |= {"description": t.description, "instructions": t.instructions, "deadline_version": t.deadline_version,
                 "cancelled_at": z(t.cancelled_at), "cancel_reason": t.cancel_reason,
+                "assignment_history": history,
                 "project": db.scalar(select(Project.name).where(Project.id == t.project_id)) if t.project_id else None,
                 "category": db.scalar(select(TaskCategory.name).where(TaskCategory.id == t.category_id)) if t.category_id else None,
                 "type": db.scalar(select(TaskType.name).where(TaskType.id == t.type_id)) if t.type_id else None}  # fmt: skip
@@ -322,6 +356,7 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
     from app.modules.tasks import projects as proj  # imported here: projects builds on this module
 
     project = proj.assert_can_take_task(db, d["project_id"], assignee.id) if d.get("project_id") else None
+    head_ids = d.get("head_employee_ids")
     head_id = d.get("head_employee_id")
     sub_head_id = d.get("sub_head_employee_id")
     qa_id = d.get("qa_employee_id")
@@ -332,29 +367,45 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
         qa_id = qa_ids[0]
 
     if not project:
-        if not head_id and not sub_head_id:
+        if not head_ids and not head_id and not sub_head_id:
             dept = db.get(Department, assignee.department_id)
             if dept:
+                fallback_heads = []
                 if dept.head_employee_id and dept.head_employee_id != assignee.id:
                     head_id = dept.head_employee_id
+                    fallback_heads.append(dept.head_employee_id)
                 if getattr(dept, "sub_head_employee_id", None) and dept.sub_head_employee_id != assignee.id:
                     sub_head_id = dept.sub_head_employee_id
+                    fallback_heads.append(dept.sub_head_employee_id)
+                if fallback_heads:
+                    head_ids = fallback_heads
         if not qa_ids:
             dept = db.get(Department, assignee.department_id)
             if dept and dept.qa_employee_id and dept.qa_employee_id != assignee.id:
                 qa_ids = [dept.qa_employee_id]
                 qa_id = dept.qa_employee_id
 
+    if head_ids and not head_id:
+        head_id = head_ids[0]
+        if len(head_ids) > 1 and not sub_head_id:
+            sub_head_id = head_ids[1]
+    elif not head_ids and (head_id or sub_head_id):
+        head_ids = [h for h in (head_id, sub_head_id) if h]
+
     for val, what in ((head_id, "head"), (sub_head_id, "sub-head"), (qa_id, "QA")):
         if val is not None:
             proj.check_person(db, val, what)
+    if head_ids:
+        for hid in head_ids:
+            proj.check_person(db, hid, "head")
 
+    creator_emp_id = p.employee.id if p.employee else assignee.id
     ttype = db.get(TaskType, d["type_id"]) if d.get("type_id") else None
     t = Task(
         task_no=f"TMP-{now.timestamp()}-{assignee.id}", title=d["title"], description=d["description"],
         instructions=d.get("instructions"), project_id=d.get("project_id"), department_id=assignee.department_id,
         company_id=company_id, category_id=d.get("category_id"), type_id=d.get("type_id"), assignee_id=assignee.id,
-        head_employee_id=head_id, sub_head_employee_id=sub_head_id, qa_employee_id=qa_id, assigned_by_id=p.employee.id, priority=d["priority"], priority_rank=PRIORITY_RANK[d["priority"]],
+        head_employee_id=head_id, sub_head_employee_id=sub_head_id, qa_employee_id=qa_id, assigned_by_id=creator_emp_id, priority=d["priority"], priority_rank=PRIORITY_RANK[d["priority"]],
         assigned_at=now, start_date=start_date, original_due_at=due, due_at=due,
         estimated_seconds=int(round((d.get("estimated_hours") or DEFAULT_ESTIMATE_HOURS) * 3600)), requires_review=bool(ttype and ttype.requires_review),
     )  # fmt: skip
@@ -362,12 +413,16 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
     db.flush()
     t.task_no = f"TSK-{t.id:06d}"
 
+    if head_ids:
+        for hid in dict.fromkeys(head_ids):
+            db.add(TaskHead(task_id=t.id, employee_id=hid))
+
     if qa_ids:
         for qid in set(qa_ids):
             proj.check_person(db, qid, "QA")
             db.add(TaskQAMember(task_id=t.id, employee_id=qid))
 
-    db.add(TaskAssignment(task_id=t.id, assignee_id=assignee.id, assigned_by_id=p.employee.id, assigned_at=now))
+    db.add(TaskAssignment(task_id=t.id, assignee_id=assignee.id, assigned_by_id=creator_emp_id, assigned_at=now))
     db.add(TaskStatusHistory(task_id=t.id, from_status=None, to_status="assigned", changed_by_user_id=p.user.id, created_at=now))
     db.add(TaskDeadlineHistory(task_id=t.id, deadline_version=1, previous_due_at=None, new_due_at=due,
                                changed_by_user_id=p.user.id, change_type="initial", created_at=now))  # fmt: skip
@@ -382,12 +437,12 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
 
 
 EDITABLE = ("title", "description", "instructions", "start_date", "project_id", "category_id", "type_id", "estimated_hours",
-            "head_employee_id", "sub_head_employee_id", "qa_employee_id", "company_id")
+            "head_employee_id", "sub_head_employee_id", "head_employee_ids", "qa_employee_id", "qa_employee_ids", "company_id")
 
 
 def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -> None:
-    if not can_manage(p, t, "task.edit"):
-        raise Forbidden()
+    if not is_leadership(p) or not can_manage(p, t, "task.edit"):
+        raise Forbidden("Only Owner and CEO have authority to edit tasks")
     if t.status not in OPEN_STATUSES:
         raise AppError("TASK_CLOSED", "Completed or cancelled tasks cannot be edited", 409)
     before, after = {}, {}
@@ -396,7 +451,23 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
             raise Forbidden("Access denied for this company")
         before["company_id"], after["company_id"] = t.company_id, d["company_id"]
         t.company_id = d["company_id"]
-    if "sub_head_employee_id" in d and d["sub_head_employee_id"] != getattr(t, "sub_head_employee_id", None):
+    if "head_employee_ids" in d and d["head_employee_ids"] is not None:
+        from app.modules.tasks import projects as proj
+        wanted = list(dict.fromkeys(d["head_employee_ids"]))
+        for hid in wanted:
+            proj.check_person(db, hid, "head")
+        current = set(db.scalars(select(TaskHead.employee_id).where(TaskHead.task_id == t.id)))
+        wanted_set = set(wanted)
+        for hid in current - wanted_set:
+            db.query(TaskHead).filter(TaskHead.task_id == t.id, TaskHead.employee_id == hid).delete()
+        for hid in wanted_set - current:
+            db.add(TaskHead(task_id=t.id, employee_id=hid))
+        primary_head = wanted[0] if len(wanted) > 0 else None
+        primary_sub = wanted[1] if len(wanted) > 1 else None
+        t.head_employee_id = primary_head
+        t.sub_head_employee_id = primary_sub
+        before["heads"], after["heads"] = sorted(current), sorted(wanted_set)
+    elif "sub_head_employee_id" in d and d["sub_head_employee_id"] != getattr(t, "sub_head_employee_id", None):
         if d["sub_head_employee_id"] is not None:
             from app.modules.tasks import projects as proj
             proj.check_person(db, d["sub_head_employee_id"], "sub-head")
@@ -418,7 +489,7 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
         before["qa_members"], after["qa_members"] = sorted(current), sorted(wanted)
 
     for k, v in d.items():
-        if k not in EDITABLE or k in ("company_id", "sub_head_employee_id", "qa_employee_ids"):
+        if k not in EDITABLE or k in ("company_id", "sub_head_employee_id", "head_employee_ids", "qa_employee_ids"):
             continue
         if k in ("head_employee_id", "qa_employee_id") and v is not None:
             from app.modules.tasks import projects as proj
@@ -458,7 +529,8 @@ def reassign_task(db: Session, p: Principal, t: Task, new_assignee_id: int, reas
     tq.close_running_for_task(db, t, "reassigned", now)  # the previous owner's timer stops at the hand-over
     for a in db.scalars(select(TaskAssignment).where(TaskAssignment.task_id == t.id, TaskAssignment.unassigned_at.is_(None))):
         a.unassigned_at = now
-    db.add(TaskAssignment(task_id=t.id, assignee_id=new.id, assigned_by_id=p.employee.id, assigned_at=now, reason=reason))
+    assigned_by_id = p.employee.id if p.employee else t.assigned_by_id
+    db.add(TaskAssignment(task_id=t.id, assignee_id=new.id, assigned_by_id=assigned_by_id, assigned_at=now, reason=reason))
     t.assignee_id, t.department_id, t.acknowledged_at = new.id, new.department_id, None
     if t.status == "blocked":  # the new owner inherits the blocked task; it returns to "assigned" once the blocker clears
         t.status_before_block = "assigned"
@@ -487,8 +559,8 @@ def change_priority(db: Session, p: Principal, t: Task, priority: str, reason: s
 
 
 def cancel_task(db: Session, p: Principal, t: Task, reason: str, request: Request) -> None:
-    if not can_manage(p, t, "task.cancel"):
-        raise Forbidden()
+    if not is_leadership(p) or not can_manage(p, t, "task.cancel"):
+        raise Forbidden("Only Owner and CEO have authority to cancel tasks")
     tq.close_running_for_task(db, t, "cancelled", clock.utcnow())  # a cancelled task stops the assignee's clock
     from app.modules.collab import blockers as blk  # imported here: collab builds on this module
 

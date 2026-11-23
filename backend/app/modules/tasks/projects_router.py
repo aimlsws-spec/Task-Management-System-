@@ -35,6 +35,7 @@ class ProjectIn(Strict):
     assignee_id: int | None = None
     head_employee_id: int | None = None
     sub_head_employee_id: int | None = None
+    head_employee_ids: list[int] | None = None
     qa_employee_id: int | None = None
     qa_employee_ids: list[int] | None = None
     member_ids: list[int] = Field(default_factory=list, max_length=500)
@@ -53,6 +54,7 @@ class ProjectPatch(Strict):
     assignee_id: int | None = None
     head_employee_id: int | None = None
     sub_head_employee_id: int | None = None
+    head_employee_ids: list[int] | None = None
     qa_employee_id: int | None = None
     qa_employee_ids: list[int] | None = None
     progress_pct: int | None = Field(None, ge=0, le=100)
@@ -72,6 +74,7 @@ class AssignPointIn(Strict):
     type_id: int | None = None
     head_employee_id: int | None = None
     sub_head_employee_id: int | None = None
+    head_employee_ids: list[int] | None = None
     qa_employee_id: int | None = None
     qa_employee_ids: list[int] | None = None
 
@@ -98,23 +101,20 @@ def get_project(project_id: int, p: Principal = Depends(get_principal)):
 
 @router.patch("/projects/{project_id}")
 def patch_project(project_id: int, body: ProjectPatch, request: Request, p: Principal = Depends(get_principal)):
-    can_m = p.has("project.manage")
-    data = body.model_dump(exclude_unset=True)
-    if not can_m:
-        other_fields = set(data.keys()) - {"progress_pct"}
-        if other_fields or not p.employee:
-            from app.core.errors import Forbidden
-            raise Forbidden("You cannot edit this project")
-    pr = projects.get_project(p.db, project_id)
-    is_assignee = bool(p.employee and p.employee.id == pr.assignee_id)
-    if not (can_m or is_assignee):
+    if not (projects.is_leadership(p) and p.has("project.manage")):
         from app.core.errors import Forbidden
-        raise Forbidden("You cannot edit this project")
-    if not can_m and is_assignee:
-        # Assignee can only update progress_pct
-        data = {k: v for k, v in data.items() if k == "progress_pct"}
-    projects.update_project(p.db, p, pr, data, request)
+        raise Forbidden("Only Owner and CEO have authority to edit projects")
+    pr = projects.get_project(p.db, project_id)
+    projects.update_project(p.db, p, pr, body.model_dump(exclude_unset=True), request)
     return projects.detail(p.db, p, pr)
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: int, request: Request, p: Principal = Depends(get_principal)):
+    if not projects.is_leadership(p):
+        from app.core.errors import Forbidden
+        raise Forbidden("Only Owner and CEO have authority to delete projects")
+    projects.delete_project(p.db, p, project_id, request)
 
 
 @router.patch("/projects/{project_id}/points/{point_id}/toggle")
@@ -131,12 +131,18 @@ def add_point(project_id: int, body: PointIn, request: Request, p: Principal = D
 
 @router.patch("/projects/{project_id}/points/{point_id}")
 def patch_point(project_id: int, point_id: int, body: PointPatch, request: Request, p: Principal = Depends(require("project.manage"))):
+    if not projects.is_leadership(p):
+        from app.core.errors import Forbidden
+        raise Forbidden("Only Owner and CEO have authority to edit project points")
     pr = projects.get_project(p.db, project_id)
     return projects.point_dict(p.db, projects.update_point(p.db, p, pr, point_id, body.model_dump(exclude_unset=True), request))
 
 
 @router.delete("/projects/{project_id}/points/{point_id}", status_code=204)
 def delete_point(project_id: int, point_id: int, request: Request, p: Principal = Depends(require("project.manage"))):
+    if not projects.is_leadership(p):
+        from app.core.errors import Forbidden
+        raise Forbidden("Only Owner and CEO have authority to delete project points")
     projects.delete_point(p.db, p, projects.get_project(p.db, project_id), point_id, request)
 
 
