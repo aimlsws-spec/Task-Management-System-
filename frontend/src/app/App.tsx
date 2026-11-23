@@ -20,6 +20,7 @@ import { Tasks } from "@/pages/Tasks";
 import { WorkloadPage } from "@/pages/Workload";
 import { Roles } from "@/pages/Roles";
 import { RoleEmails } from "@/pages/RoleEmails";
+import { Hierarchy } from "@/pages/Hierarchy";
 import { ReportsPage } from "@/pages/Reports";
 import { AuditLogPage } from "@/pages/AuditLog";
 import { AdminPanel } from "@/pages/AdminPanel";
@@ -68,7 +69,9 @@ export function App() {
           <Route path="companies" element={<Protected perm="employee.manage"><Companies /></Protected>} />
           <Route path="employees" element={<Protected perm="employee.view"><Employees /></Protected>} />
           <Route path="departments" element={<Protected perm="department.manage"><Departments /></Protected>} />
+          <Route path="hierarchy" element={<Protected perm="hierarchy.manage"><Hierarchy /></Protected>} />
           <Route path="role-emails" element={<Protected perm="employee.manage"><RoleEmails /></Protected>} />
+          <Route path="invites" element={<Protected perm="employee.manage"><RoleEmails /></Protected>} />
           <Route path="roles" element={<Protected perm="role.manage"><Roles /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

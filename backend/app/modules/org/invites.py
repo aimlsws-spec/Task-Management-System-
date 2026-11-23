@@ -10,7 +10,7 @@ from app.modules.audit import service as audit
 from app.modules.auth.models import User
 from app.modules.auth.service import revoke_all_sessions
 from app.modules.notifications import direct
-from app.modules.org.models import Department, Employee, RoleInvite
+from app.modules.org.models import Company, Department, Employee, RoleInvite
 from app.modules.rbac.models import Role, UserRole
 from app.modules.rbac.policy import Principal
 
@@ -27,9 +27,12 @@ def norm(email: str) -> str:
 
 def invite_dict(db: Session, i: RoleInvite) -> dict:
     role = db.get(Role, i.role_id)
+    cid = getattr(i, "company_id", 1)
+    co = db.get(Company, cid) if cid else None
     return {
         "id": i.id, "email": i.email, "role_code": role.code, "role_name": role.name,
-        "company_id": getattr(i, "company_id", 1),
+        "company_id": cid,
+        "company_name": co.name if co else None,
         "claimed": i.claimed_at is not None,
         "claimed_at": i.claimed_at.isoformat() + "Z" if i.claimed_at else None,
         "created_at": i.created_at.isoformat() + "Z",

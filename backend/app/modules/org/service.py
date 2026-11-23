@@ -226,10 +226,13 @@ def create_employee(db: Session, p: Principal, data: dict, request: Request) -> 
     if dept is None or not dept.is_active:
         raise AppError("INVALID_DEPARTMENT", "Department not found or inactive", 422)
     validate_password_policy(data["temp_password"])
+    emp_company_id = data.get("company_id") or getattr(dept, "company_id", 1) or 1
+    p_cids = p.company_ids()
+    if p_cids is not None and emp_company_id not in p_cids:
+        raise Forbidden("You cannot create employees for companies outside your authorized scope")
     user = User(email=email, password_hash=hash_password(data["temp_password"]), must_change_password=True)
     db.add(user)
     db.flush()
-    emp_company_id = data.get("company_id") or getattr(dept, "company_id", 1) or 1
     emp = Employee(
         user_id=user.id, employee_code=code, full_name=data["full_name"], phone=data.get("phone"),
         job_title=data.get("job_title"), department_id=dept.id, joined_on=data.get("joined_on") or date.today(),
@@ -255,6 +258,11 @@ def guard_rank(db: Session, p: Principal, emp: Employee) -> None:
 
 def update_employee(db: Session, p: Principal, emp: Employee, data: dict, request: Request) -> None:
     guard_rank(db, p, emp)
+    p_cids = p.company_ids()
+    if p_cids is not None:
+        emp_cids = employee_company_ids(db, emp)
+        if emp_cids is None or not any(cid in p_cids for cid in emp_cids):
+            raise Forbidden("You cannot manage employees outside your authorized companies")
     before = {k: getattr(emp, k) for k in data if k != "role_codes"}
     if "department_id" in data:
         dept = db.get(Department, data["department_id"])
@@ -284,6 +292,11 @@ def update_employee(db: Session, p: Principal, emp: Employee, data: dict, reques
 
 def deactivate_employee(db: Session, p: Principal, emp: Employee, request: Request) -> dict:
     guard_rank(db, p, emp)
+    p_cids = p.company_ids()
+    if p_cids is not None:
+        emp_cids = employee_company_ids(db, emp)
+        if emp_cids is None or not any(cid in p_cids for cid in emp_cids):
+            raise Forbidden("You cannot manage employees outside your authorized companies")
     if p.employee is not None and p.employee.id == emp.id:
         raise AppError("CANNOT_DEACTIVATE_SELF", "You cannot deactivate yourself", 409)
     user = db.get(User, emp.user_id)
@@ -305,6 +318,11 @@ def deactivate_employee(db: Session, p: Principal, emp: Employee, request: Reque
 
 def reactivate_employee(db: Session, p: Principal, emp: Employee, request: Request) -> None:
     guard_rank(db, p, emp)
+    p_cids = p.company_ids()
+    if p_cids is not None:
+        emp_cids = employee_company_ids(db, emp)
+        if emp_cids is None or not any(cid in p_cids for cid in emp_cids):
+            raise Forbidden("You cannot manage employees outside your authorized companies")
     user = db.get(User, emp.user_id)
     user.is_active = True
     emp.status, emp.left_on = "active", None
@@ -319,17 +337,18 @@ def set_manager(db: Session, p: Principal, employee_id: int, reports_to_id: int 
     if emp is None:
         raise NotFound("Employee")
     guard_rank(db, p, emp)
-    if hasattr(p, "can_access_company"):
+    p_cids = p.company_ids() if hasattr(p, "company_ids") else None
+    if p_cids is not None:
         emp_cids = employee_company_ids(db, emp)
-        if emp_cids is not None and not any(p.can_access_company(cid) for cid in emp_cids):
+        if emp_cids is None or not any(cid in p_cids for cid in emp_cids):
             raise Forbidden("You cannot manage employee hierarchy outside your authorized companies")
     if reports_to_id is not None:
         boss = db.get(Employee, reports_to_id)
         if boss is None or boss.status == "inactive":
             raise AppError("INVALID_MANAGER", "Manager must be an active employee", 422)
-        if hasattr(p, "can_access_company"):
+        if p_cids is not None:
             boss_cids = employee_company_ids(db, boss)
-            if boss_cids is not None and not any(p.can_access_company(cid) for cid in boss_cids):
+            if boss_cids is None or not any(cid in p_cids for cid in boss_cids):
                 raise Forbidden("Manager must belong to your authorized companies")
         if reports_to_id == employee_id or reports_to_id in subtree_ids(db, employee_id):
             raise AppError("HIERARCHY_CYCLE", "This change would create a reporting cycle", 409)
@@ -345,8 +364,9 @@ def set_manager(db: Session, p: Principal, employee_id: int, reports_to_id: int 
                 ReportingRelationship.effective_to.is_(None),
             )
         )
-        row.effective_to = now
-        db.flush()  # free the unique "one active" slot before inserting the new row
+        if row:
+            row.effective_to = now
+            db.flush()  # free the unique "one active" slot before inserting the new row
     if reports_to_id is not None:
         db.add(ReportingRelationship(employee_id=employee_id, reports_to_id=reports_to_id, effective_from=now, created_by=p.user.id))
     db.flush()
@@ -434,12 +454,24 @@ def set_employee_companies(db: Session, p: Principal, emp: Employee, company_ids
               after={"company_ids": company_ids}, request=request)
 
 
-def hierarchy_tree(db: Session, visible_ids: set[int] | None, company_id: int | None = None) -> list[dict]:
+def hierarchy_tree(
+    db: Session,
+    visible_ids: set[int] | None,
+    company_id: int | None = None,
+    allowed_company_ids: set[int] | None = None,
+) -> list[dict]:
     q = select(Employee).where(Employee.status != "inactive")
     if visible_ids is not None:
         q = q.where(Employee.id.in_(visible_ids))
+
+    from app.modules.org.models import EmployeeCompany
     if company_id is not None:
-        q = q.where(Employee.company_id == company_id)
+        emp_ids_in_co = select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id == company_id)
+        q = q.where((Employee.company_id == company_id) | (Employee.id.in_(emp_ids_in_co)))
+    elif allowed_company_ids is not None:
+        emp_ids_in_allowed = select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id.in_(allowed_company_ids))
+        q = q.where((Employee.company_id.in_(allowed_company_ids)) | (Employee.id.in_(emp_ids_in_allowed)))
+
     emps = {e.id: e for e in db.scalars(q)}
     links = {
         r.employee_id: r.reports_to_id
@@ -449,13 +481,20 @@ def hierarchy_tree(db: Session, visible_ids: set[int] | None, company_id: int | 
             )
         )
     }
+    dept_names = {d.id: d.name for d in db.scalars(select(Department))}
+    user_emails = {u.id: u.email for u in db.scalars(select(User))}
     nodes = {
         i: {
             "id": i,
             "full_name": e.full_name,
+            "employee_code": e.employee_code,
             "job_title": e.job_title,
             "department_id": e.department_id,
+            "department_name": dept_names.get(e.department_id, ""),
+            "email": user_emails.get(e.user_id, ""),
             "company_id": getattr(e, "company_id", 1),
+            "reports_to_id": links.get(i),
+            "roles": role_codes(db, e.user_id),
             "children": [],
         }
         for i, e in emps.items()

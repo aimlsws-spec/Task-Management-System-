@@ -1,4 +1,4 @@
-import { AlertTriangle, BarChart3, ScrollText, Bell, OctagonAlert, BellRing, Building2, FolderKanban, FolderPlus, Gauge, LayoutDashboard, ListChecks, LogOut, MailCheck, Menu, PlusCircle, ShieldCheck, Users, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, BarChart3, ScrollText, Bell, OctagonAlert, BellRing, Building2, FolderKanban, FolderPlus, Gauge, LayoutDashboard, ListChecks, LogOut, Menu, Network, PlusCircle, ShieldCheck, UserPlus, Users, X, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -38,7 +38,8 @@ function useNav() {
     admin.push({ to: "/companies", label: "Companies", icon: Building2 });
     admin.push({ to: "/employees", label: "Employees", icon: Users });
   }
-  if (can("employee.manage")) admin.push({ to: "/role-emails", label: "Role emails", icon: MailCheck });
+  if (can("hierarchy.manage")) admin.push({ to: "/hierarchy", label: "Hierarchy", icon: Network });
+  if (can("employee.manage")) admin.push({ to: "/role-emails", label: "Invite Employees", icon: UserPlus });
   if (can("department.manage")) admin.push({ to: "/departments", label: "Departments", icon: Building2 });
   if (can("role.manage")) admin.push({ to: "/roles", label: "Roles & Permissions", icon: ShieldCheck });
   if (can("notification.rules.manage")) admin.push({ to: "/admin/notifications", label: "Notifications & Jobs", icon: BellRing });

@@ -6,6 +6,7 @@ import {
   Building2,
   CheckCircle2,
   MailCheck,
+  Network,
   RefreshCw,
   ScrollText,
   ShieldCheck,
@@ -240,7 +241,7 @@ export function AdminDashboard({ name }: { name?: string }) {
       {/* Quick Action Navigation Buttons */}
       <Card className="p-4">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Administration Quick Actions</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Link
             to="/employees"
             className="flex flex-col items-center justify-center rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-center transition-colors hover:border-indigo-200 hover:bg-indigo-50/50"
@@ -249,11 +250,18 @@ export function AdminDashboard({ name }: { name?: string }) {
             <span className="mt-2 text-xs font-medium text-slate-700">Employees</span>
           </Link>
           <Link
+            to="/hierarchy"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-center transition-colors hover:border-indigo-200 hover:bg-indigo-50/50"
+          >
+            <Network size={18} className="text-indigo-600" />
+            <span className="mt-2 text-xs font-medium text-slate-700">Hierarchy</span>
+          </Link>
+          <Link
             to="/role-emails"
             className="flex flex-col items-center justify-center rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-center transition-colors hover:border-blue-200 hover:bg-blue-50/50"
           >
             <MailCheck size={18} className="text-blue-600" />
-            <span className="mt-2 text-xs font-medium text-slate-700">Role Emails</span>
+            <span className="mt-2 text-xs font-medium text-slate-700">Invite Employees</span>
           </Link>
           <Link
             to="/departments"

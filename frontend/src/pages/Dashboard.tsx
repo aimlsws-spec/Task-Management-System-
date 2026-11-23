@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { FolderPlus, PlusCircle } from "lucide-react";
+import { FolderPlus, Network, PlusCircle, UserPlus } from "lucide-react";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type DelayQueue, type TaskPage, type Workload } from "@/components/task-ui";
 import { OverviewPanel } from "@/components/Overview";
@@ -101,6 +101,22 @@ export function Dashboard() {
               >
                 <FolderPlus size={15} /> Assign Project
               </Link>
+              {can("employee.manage") && (
+                <Link
+                  to="/role-emails"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  <UserPlus size={15} /> Invite Employee
+                </Link>
+              )}
+              {can("hierarchy.manage") && (
+                <Link
+                  to="/hierarchy"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  <Network size={15} /> Manage Hierarchy
+                </Link>
+              )}
             </div>
           </div>
         )}

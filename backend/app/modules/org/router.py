@@ -192,11 +192,18 @@ def _visible_employee(p: Principal, emp_id: int) -> Employee:
     # Out-of-scope is reported as 404 so existence is not leaked.
     if emp is None or not p.can_see("employee.view", emp.id):
         raise NotFound("Employee")
+    cids = p.company_ids()
+    if cids is not None:
+        from app.modules.org.models import employee_company_ids
+        emp_cids = employee_company_ids(p.db, emp)
+        if emp_cids is not None and not any(cid in cids for cid in emp_cids):
+            raise NotFound("Employee")
     return emp
 
 
 @router.get("/employees")
 def list_employees(
+    company_id: int | None = None,
     department_id: int | None = None, status: str | None = None, q: str | None = None,
     page: int = 1, page_size: int = 50, p: Principal = Depends(require("employee.view")),
 ):  # fmt: skip
@@ -205,6 +212,20 @@ def list_employees(
     ids = p.scope_employee_ids("employee.view")
     if ids is not None:
         stmt = stmt.where(Employee.id.in_(ids))
+
+    cids = p.company_ids()
+    if cids is not None:
+        from app.modules.org.models import EmployeeCompany
+        emp_ids_in_allowed = select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id.in_(cids))
+        stmt = stmt.where((Employee.company_id.in_(cids)) | (Employee.id.in_(emp_ids_in_allowed)))
+        if company_id is not None and company_id not in cids:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+    if company_id is not None:
+        from app.modules.org.models import EmployeeCompany
+        emp_ids_in_co = select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id == company_id)
+        stmt = stmt.where((Employee.company_id == company_id) | (Employee.id.in_(emp_ids_in_co)))
+
     if department_id:
         stmt = stmt.where(Employee.department_id == department_id)
     if status:
@@ -291,7 +312,7 @@ def tree(company_id: int | None = None, p: Principal = Depends(require("employee
             return []
         if company_id is None and len(cids) == 1:
             company_id = next(iter(cids))
-    return service.hierarchy_tree(p.db, p.scope_employee_ids("employee.view"), company_id=company_id)
+    return service.hierarchy_tree(p.db, p.scope_employee_ids("employee.view"), company_id=company_id, allowed_company_ids=cids)
 
 
 @router.get("/hierarchy/relationships")
