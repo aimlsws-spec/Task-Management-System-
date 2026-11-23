@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.org.models import Department, Employee
 from app.modules.rbac.models import Role, UserRole
-from app.modules.tasks.models import Project, ProjectMember, Task
+from app.modules.tasks.models import Project, ProjectMember, ProjectQAMember, Task, TaskQAMember
 
 STAGE_ORDER = ("qa", "head", "leadership")
 
@@ -24,12 +24,103 @@ def _assignee_department(db: Session, t: Task) -> Department | None:
     return db.get(Department, emp.department_id) if emp is not None else None
 
 
+def effective_heads(db: Session, t: Task) -> list[int]:
+    """
+    Returns the list of responsible heads/subheads for this task following the 4-tier fallback:
+    1. Explicit task head/subhead if set.
+    2. Else explicit project head/subhead if set.
+    3. Else fallback to the assignee's department head and subhead.
+    4. If department has no head and no subhead: returns [] (specific employee task).
+    Excludes the assignee themselves (cannot review self).
+    """
+    heads: list[int] = []
+    # 1. Task level
+    if t.head_employee_id or getattr(t, "sub_head_employee_id", None):
+        for h in (t.head_employee_id, getattr(t, "sub_head_employee_id", None)):
+            if h and h not in heads:
+                heads.append(h)
+    # 2. Project level
+    elif t.project_id:
+        pr = db.get(Project, t.project_id)
+        if pr and (pr.head_employee_id or getattr(pr, "sub_head_employee_id", None)):
+            for h in (pr.head_employee_id, getattr(pr, "sub_head_employee_id", None)):
+                if h and h not in heads:
+                    heads.append(h)
+    # 3. Department fallback
+    if not heads:
+        dept = _assignee_department(db, t)
+        if dept:
+            for h in (dept.head_employee_id, getattr(dept, "sub_head_employee_id", None)):
+                if h and h not in heads:
+                    heads.append(h)
+
+    # Filter out inactive employees and assignee (cannot review self)
+    valid = []
+    for h in heads:
+        if h != t.assignee_id and _active(db, h) is not None:
+            valid.append(h)
+    return valid
+
+
 def named_head_id(db: Session, t: Task) -> int | None:
     """A head somebody chose for this task or its project (not the department fallback)."""
     if t.head_employee_id:
         return t.head_employee_id
+    if getattr(t, "sub_head_employee_id", None):
+        return t.sub_head_employee_id
     pr = db.get(Project, t.project_id) if t.project_id else None
-    return pr.head_employee_id if pr is not None else None
+    if pr:
+        return pr.head_employee_id or getattr(pr, "sub_head_employee_id", None)
+    return None
+
+
+def head_id(db: Session, t: Task) -> int | None:
+    """The primary head ID among the effective heads."""
+    heads = effective_heads(db, t)
+    return heads[0] if heads else None
+
+
+def sub_head_id(db: Session, t: Task) -> int | None:
+    """The subhead ID if more than one effective head is present or subhead explicitly set."""
+    heads = effective_heads(db, t)
+    return heads[1] if len(heads) > 1 else None
+
+
+def qa_ids(db: Session, t: Task) -> list[int]:
+    """
+    Returns all assigned QA member employee IDs:
+    1. Task-level QA members (from task_qa_members or t.qa_employee_id).
+    2. Else project-level QA members (from project_qa_members or pr.qa_employee_id).
+    3. Else department QA tester.
+    Excludes the assignee themselves and inactive employees.
+    """
+    members: list[int] = list(db.scalars(select(TaskQAMember.employee_id).where(TaskQAMember.task_id == t.id)))
+    if not members and t.qa_employee_id:
+        members = [t.qa_employee_id]
+
+    if not members and t.project_id:
+        members = list(db.scalars(select(ProjectQAMember.employee_id).where(ProjectQAMember.project_id == t.project_id)))
+        if not members:
+            pr = db.get(Project, t.project_id)
+            if pr and pr.qa_employee_id:
+                members = [pr.qa_employee_id]
+
+    if not members:
+        dept = _assignee_department(db, t)
+        if dept and dept.qa_employee_id:
+            members = [dept.qa_employee_id]
+
+    valid = []
+    for m in members:
+        if m != t.assignee_id and _active(db, m) is not None and m not in valid:
+            valid.append(m)
+    return valid
+
+
+def qa_id(db: Session, t: Task) -> int | None:
+    """Primary QA member for backwards-compatibility."""
+    qas = qa_ids(db, t)
+    return qas[0] if qas else None
 
 
 def named_qa_id(db: Session, t: Task) -> int | None:
@@ -37,30 +128,6 @@ def named_qa_id(db: Session, t: Task) -> int | None:
         return t.qa_employee_id
     pr = db.get(Project, t.project_id) if t.project_id else None
     return pr.qa_employee_id if pr is not None else None
-
-
-def head_id(db: Session, t: Task) -> int | None:
-    """The task's own head, else the project's head, else the head of the assignee's department (never the assignee)."""
-    if t.head_employee_id:
-        return t.head_employee_id
-    pr = db.get(Project, t.project_id) if t.project_id else None
-    if pr is not None and pr.head_employee_id:
-        return pr.head_employee_id
-    dept = _assignee_department(db, t)
-    head = dept.head_employee_id if dept is not None else None
-    return head if head and head != t.assignee_id else None
-
-
-def qa_id(db: Session, t: Task) -> int | None:
-    """The task's own QA, else the project's QA, else the QA tester of the assignee's department (never the assignee)."""
-    if t.qa_employee_id:
-        return t.qa_employee_id
-    pr = db.get(Project, t.project_id) if t.project_id else None
-    if pr is not None and pr.qa_employee_id:
-        return pr.qa_employee_id
-    dept = _assignee_department(db, t)
-    qa = dept.qa_employee_id if dept is not None else None
-    return qa if qa and qa != t.assignee_id else None
 
 
 def is_leadership(db: Session, employee_id: int | None) -> bool:
@@ -80,12 +147,14 @@ def has_chain(db: Session, t: Task) -> bool:
 def stages(db: Session, t: Task) -> list[str]:
     """The review stages this task's work passes through, in order. Nobody reviews their own work; the same person is not asked twice."""
     out: list[str] = []
-    qa = _active(db, qa_id(db, t))
-    if qa is not None and qa.id != t.assignee_id:
+    # 1. QA stage if task has QA assigned
+    if qa_ids(db, t):
         out.append("qa")
-    head = _active(db, head_id(db, t))
-    if head is not None and head.id != t.assignee_id and (qa is None or head.id != qa.id or "qa" not in out):
+    # 2. Head stage if task has any effective head/subhead (skipped if specific employee task)
+    heads = effective_heads(db, t)
+    if heads:
         out.append("head")
+    # 3. Leadership stage
     out.append("leadership")
     return out
 
@@ -105,12 +174,22 @@ def next_stage(db: Session, t: Task, current: str) -> str | None:
 
 def loop_employee_ids(db: Session, t: Task) -> list[int]:
     """Everybody with a stake in this task, for messages: the task's people plus the project's head, QA, team and creator."""
-    ids: list[int | None] = [t.assignee_id, t.assigned_by_id, head_id(db, t), qa_id(db, t)]
+    ids: list[int | None] = [t.assignee_id, t.assigned_by_id]
+    ids.extend(effective_heads(db, t))
+    ids.extend(qa_ids(db, t))
+    # Also keep department head and subhead in loop
+    dept = _assignee_department(db, t)
+    if dept:
+        if dept.head_employee_id:
+            ids.append(dept.head_employee_id)
+        if getattr(dept, "sub_head_employee_id", None):
+            ids.append(dept.sub_head_employee_id)
     if t.project_id:
         pr = db.get(Project, t.project_id)
         if pr is not None:
-            ids += [pr.head_employee_id, pr.qa_employee_id, pr.owner_employee_id]
+            ids += [pr.head_employee_id, getattr(pr, "sub_head_employee_id", None), pr.qa_employee_id, pr.owner_employee_id]
             ids += list(db.scalars(select(ProjectMember.employee_id).where(ProjectMember.project_id == pr.id)))
+            ids += list(db.scalars(select(ProjectQAMember.employee_id).where(ProjectQAMember.project_id == pr.id)))
     seen: list[int] = []
     for i in ids:
         if i and i not in seen:

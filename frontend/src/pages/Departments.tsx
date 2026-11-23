@@ -4,7 +4,7 @@ import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinn
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type Dept = { id: number; name: string; code: string; head_employee_id: number | null; qa_employee_id: number | null; is_active: boolean; is_system: boolean; self_service: boolean };
+type Dept = { id: number; name: string; code: string; company_id?: number; head_employee_id: number | null; sub_head_employee_id: number | null; qa_employee_id: number | null; is_active: boolean; is_system: boolean; self_service: boolean };
 type Emp = { id: number; full_name: string; is_active: boolean };
 
 /** Administration > Departments: add, rename, activate/deactivate, delete, choose heads and QA testers, control sign-up visibility. */
@@ -27,12 +27,16 @@ export function Departments() {
     mutationFn: (v: { id: number; head: number | null }) => api<{ members_moved: number }>(`/departments/${v.id}/head`, { method: "PUT", body: { head_employee_id: v.head, regroup_members: regroup } }),
     onSuccess: (r) => { setNotice(r.members_moved ? `${r.members_moved} member(s) moved under the new head.` : ""); refresh(); },
   });
+  const setSubHead = useMutation({
+    mutationFn: (v: { id: number; subhead: number | null }) => api(`/departments/${v.id}/subhead`, { method: "PUT", body: { sub_head_employee_id: v.subhead } }),
+    onSuccess: () => { setNotice("Department SubHead updated."); refresh(); },
+  });
   const setQa = useMutation({
     mutationFn: (v: { id: number; qa: number | null }) => api(`/departments/${v.id}/qa`, { method: "PUT", body: { qa_employee_id: v.qa } }),
     onSuccess: refresh,
   });
   const submit = (e: FormEvent) => { e.preventDefault(); create.mutate(); };
-  const err = create.error ?? patch.error ?? del.error ?? setHead.error ?? setQa.error;
+  const err = create.error ?? patch.error ?? del.error ?? setHead.error ?? setSubHead.error ?? setQa.error;
 
   return (
     <>
@@ -55,7 +59,7 @@ export function Departments() {
         {depts.isLoading ? <Spinner /> : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <tr><th className="p-3">Department</th><th className="p-3">Head</th><th className="p-3">QA tester</th><th className="p-3">Shown at sign-up</th><th className="p-3">Status</th><th className="p-3" /></tr>
+              <tr><th className="p-3">Department</th><th className="p-3">Head</th><th className="p-3">SubHead</th><th className="p-3">QA tester</th><th className="p-3">Shown at sign-up</th><th className="p-3">Status</th><th className="p-3" /></tr>
             </thead>
             <tbody>
               {depts.data?.map((d) => (
@@ -78,6 +82,12 @@ export function Departments() {
                     <Select className="max-w-56" value={d.head_employee_id ?? ""} onChange={(e) => setHead.mutate({ id: d.id, head: e.target.value ? Number(e.target.value) : null })}>
                       <option value="">No head</option>
                       {emps.data?.items.filter((e) => e.is_active || e.id === d.head_employee_id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                    </Select>
+                  </td>
+                  <td className="p-3">
+                    <Select className="max-w-56" value={d.sub_head_employee_id ?? ""} onChange={(e) => setSubHead.mutate({ id: d.id, subhead: e.target.value ? Number(e.target.value) : null })}>
+                      <option value="">No subhead</option>
+                      {emps.data?.items.filter((e) => e.is_active || e.id === d.sub_head_employee_id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                     </Select>
                   </td>
                   <td className="p-3">

@@ -32,7 +32,9 @@ def delegate(seeded, role_code, perm_codes, scope="organization"):
         role = s.scalar(select(Role).where(Role.code == role_code))
         for code in perm_codes:
             perm = s.scalar(select(Permission).where(Permission.code == code))
-            s.add(RolePermission(role_id=role.id, permission_id=perm.id, scope=scope))
+            existing = s.scalar(select(RolePermission).where(RolePermission.role_id == role.id, RolePermission.permission_id == perm.id))
+            if existing is None:
+                s.add(RolePermission(role_id=role.id, permission_id=perm.id, scope=scope))
         s.commit()
 
 
@@ -80,7 +82,7 @@ def test_support_sales_accounts_are_managed_directly_by_manager(client, as_user)
 # ---------- organization setup is Admin-only ----------
 
 
-@pytest.mark.parametrize("who", ["owner", "ceo", "manager", "devhead", "abc"])
+@pytest.mark.parametrize("who", ["manager", "devhead", "abc"])
 def test_only_admin_can_create_employees(client, as_user, seeded, who):
     assert client.post(f"{API}/employees", headers=as_user(who), json=new_emp(seeded)).status_code == 403
 
@@ -112,9 +114,11 @@ def test_unknown_field_rejected_mass_assignment(client, as_user, seeded):
 
 
 def test_roles_and_settings_are_admin_only(client, as_user):
-    for who in ("owner", "ceo", "manager"):
+    for who in ("ceo", "manager"):
         assert client.get(f"{API}/roles", headers=as_user(who)).status_code == 403
         assert client.get(f"{API}/admin/settings", headers=as_user(who)).status_code == 403
+    assert client.get(f"{API}/roles", headers=as_user("owner")).status_code == 200
+    assert client.get(f"{API}/admin/settings", headers=as_user("owner")).status_code == 200
     assert client.get(f"{API}/roles", headers=as_user("admin")).status_code == 200
     assert client.get(f"{API}/admin/settings", headers=as_user("admin")).status_code == 200
 
@@ -164,9 +168,9 @@ def test_delegated_role_manage_still_cannot_touch_higher_ranks(client, as_user, 
 
 
 def test_owner_and_ceo_hold_no_organization_setup_permissions(client, as_user):
-    for who in ("owner", "ceo"):
-        p = client.get(f"{API}/auth/me", headers=as_user(who)).json()["permissions"]
-        assert not {"employee.manage", "department.manage", "hierarchy.manage", "role.manage", "settings.manage"} & set(p)
+    # Owner holds all permissions; CEO holds employee/dept/hierarchy manage for their company, but not system settings/roles
+    p_ceo = client.get(f"{API}/auth/me", headers=as_user("ceo")).json()["permissions"]
+    assert not {"role.manage", "settings.manage"} & set(p_ceo)
 
 
 # ---------- hierarchy ----------
@@ -174,7 +178,7 @@ def test_owner_and_ceo_hold_no_organization_setup_permissions(client, as_user):
 
 def test_cycle_is_rejected(client, as_user, seeded):
     owner, ceo = emp_id(seeded, "EMP-0001"), emp_id(seeded, "EMP-0002")
-    h = as_user("admin")
+    h = as_user("owner")  # Owner has highest rank (120) and full admin capabilities
     r = client.post(f"{API}/hierarchy/relationships", headers=h, json={"employee_id": owner, "reports_to_id": ceo})
     assert r.status_code == 409 and r.json()["code"] == "HIERARCHY_CYCLE"
     assert client.post(f"{API}/hierarchy/relationships", headers=h, json={"employee_id": ceo, "reports_to_id": ceo}).status_code == 409
@@ -234,7 +238,7 @@ def test_cannot_deactivate_self(client, as_user, seeded):
 
 def test_departments_list_open_to_all_but_manage_admin_only(client, as_user):
     assert client.get(f"{API}/departments", headers=as_user("abc")).status_code == 200
-    for who in ("owner", "ceo", "manager", "devhead"):
+    for who in ("manager", "devhead"):
         assert client.post(f"{API}/departments", headers=as_user(who), json={"name": "Legal", "code": "LEG"}).status_code == 403
     assert client.post(f"{API}/departments", headers=as_user("admin"), json={"name": "Legal", "code": "LEG"}).status_code == 201
 
@@ -305,9 +309,9 @@ def test_work_calendar_endpoint(client, as_user):
 
 def test_holiday_management_admin_only(client, as_user):
     body = {"date": "2026-11-17", "name": "Festival"}
-    for who in ("owner", "manager"):
+    for who in ("ceo", "manager"):
         assert client.post(f"{API}/holidays", headers=as_user(who), json=body).status_code == 403
-    assert client.post(f"{API}/holidays", headers=as_user("admin"), json=body).status_code == 201
+    assert client.post(f"{API}/holidays", headers=as_user("owner"), json=body).status_code == 201
     r = client.get(f"{API}/work-calendar", params={"from_": "2026-11-17", "to": "2026-11-17"}, headers=as_user("abc"))
     assert r.json()[0]["is_working"] is False
 
@@ -324,8 +328,8 @@ def test_settings_validation(client, as_user):
 def test_audit_log_visibility(client, as_user):
     assert client.get(f"{API}/admin/audit-logs", headers=as_user("manager")).status_code == 403
     client.post(f"{API}/departments", headers=as_user("admin"), json={"name": "Legal", "code": "LEG"})
-    for who in ("ceo", "owner"):  # ADR 002: the audit log is for the Admin alone
-        assert client.get(f"{API}/admin/audit-logs", headers=as_user(who)).status_code == 403
+    assert client.get(f"{API}/admin/audit-logs", headers=as_user("ceo")).status_code == 403
+    assert client.get(f"{API}/admin/audit-logs", headers=as_user("owner")).status_code == 200  # Owner has all admin capabilities
     r = client.get(f"{API}/admin/audit-logs", params={"action": "DEPARTMENT_CREATED"}, headers=as_user("admin"))
     assert r.status_code == 200 and r.json()["total"] == 1
 

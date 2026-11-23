@@ -106,12 +106,19 @@ def test_claimed_invite_cannot_be_deleted(client, as_user):
     assert client.delete(f"{API}/role-invites/{iid}", headers=as_user("admin")).status_code == 409
 
 
-@pytest.mark.parametrize("who", ["ceo", "manager", "devhead", "abc"])
+@pytest.mark.parametrize("who", ["manager", "devhead", "abc"])
 def test_only_admin_and_owner_manage_role_emails(client, as_user, who):
     h = as_user(who)
     assert client.get(f"{API}/role-invites", headers=h).status_code == 403
     assert invite(client, as_user, "x@company.example", "ceo", who=who).status_code == 403
     assert client.delete(f"{API}/role-invites/1", headers=h).status_code == 403
+
+
+def test_ceo_can_invite_employees_for_their_company_but_not_leadership(client, as_user):
+    assert invite(client, as_user, "another_ceo@company.example", "ceo", who="ceo").status_code == 403
+    assert invite(client, as_user, "another_owner@company.example", "owner", who="ceo").status_code == 403
+    r = invite(client, as_user, "new_emp@company.example", "employee", who="ceo")
+    assert r.status_code == 201
 
 
 def test_owner_can_manage_role_emails(client, as_user):

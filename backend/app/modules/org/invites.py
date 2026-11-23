@@ -29,26 +29,39 @@ def invite_dict(db: Session, i: RoleInvite) -> dict:
     role = db.get(Role, i.role_id)
     return {
         "id": i.id, "email": i.email, "role_code": role.code, "role_name": role.name,
+        "company_id": getattr(i, "company_id", 1),
         "claimed": i.claimed_at is not None,
         "claimed_at": i.claimed_at.isoformat() + "Z" if i.claimed_at else None,
         "created_at": i.created_at.isoformat() + "Z",
     }  # fmt: skip
 
 
-def list_invites(db: Session) -> list[dict]:
-    return [invite_dict(db, i) for i in db.scalars(select(RoleInvite).order_by(RoleInvite.id.desc()))]
+def list_invites(db: Session, p: Principal | None = None) -> list[dict]:
+    q = select(RoleInvite).order_by(RoleInvite.id.desc())
+    if p and not ("admin" in p.roles or "owner" in p.roles):
+        cids = p.company_ids()
+        if cids is not None:
+            q = q.where(RoleInvite.company_id.in_(cids))
+        roles = set(db.scalars(select(Role.id).where(Role.rank < p.rank)))
+        q = q.where(RoleInvite.role_id.in_(roles))
+    return [invite_dict(db, i) for i in db.scalars(q)]
 
 
-def create_invite(db: Session, p: Principal, email: str, role_code: str, request: Request) -> RoleInvite:
+def create_invite(db: Session, p: Principal, email: str, role_code: str, request: Request, company_id: int | None = None) -> RoleInvite:
     email = norm(email)
     role = db.scalar(select(Role).where(Role.code == role_code))
     if role is None or role.code == "admin":  # Admin accounts are only ever created by bootstrap-admin
         raise AppError("INVALID_ROLE", "Choose Owner, CEO, Manager, Department Head or Employee", 422)
-    if role.rank > p.rank and "admin" not in p.roles and "owner" not in p.roles:
-        raise Forbidden("You cannot grant a role above your own rank")
+    if role.rank >= p.rank and "admin" not in p.roles and "owner" not in p.roles:
+        raise Forbidden("You cannot grant a role at or above your own rank")
     if db.scalar(select(RoleInvite.id).where(RoleInvite.email == email)):
         raise Conflict("INVITE_EXISTS", "This email already has a role registered")
-    inv = RoleInvite(email=email, role_id=role.id, created_by=p.user.id)
+
+    cid = company_id or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else 1)
+    if not p.can_access_company(cid):
+        raise Forbidden("You cannot create invitations for this company")
+
+    inv = RoleInvite(email=email, role_id=role.id, created_by=p.user.id, company_id=cid)
     db.add(inv)
     db.flush()
     user = db.scalar(select(User).where(User.email == email))
@@ -56,11 +69,15 @@ def create_invite(db: Session, p: Principal, email: str, role_code: str, request
         if not db.scalar(select(UserRole.user_id).where(UserRole.user_id == user.id, UserRole.role_id == role.id)):
             db.add(UserRole(user_id=user.id, role_id=role.id, granted_by=p.user.id))
         inv.claimed_user_id, inv.claimed_at = user.id, clock.utcnow()
+        if role.code == "ceo" and cid:
+            from app.modules.org.models import CompanyCEO
+            if not db.scalar(select(CompanyCEO.company_id).where(CompanyCEO.company_id == cid, CompanyCEO.user_id == user.id)):
+                db.add(CompanyCEO(company_id=cid, user_id=user.id, granted_by_user_id=p.user.id))
         db.flush()
         revoke_all_sessions(db, user)
     _send_invitation(db, role, email, has_account=user is not None, user_id=user.id if user else None)
     audit.log(db, p.user.id, "ROLE_INVITE_CREATED", "role_invite", inv.id,
-              after={"email": email, "role": role.code, "applied_to_existing_user": user is not None}, request=request)  # fmt: skip
+              after={"email": email, "role": role.code, "company_id": cid, "applied_to_existing_user": user is not None}, request=request)  # fmt: skip
     return inv
 
 
@@ -73,6 +90,11 @@ def resend_invite(db: Session, p: Principal, invite_id: int, request: Request) -
     inv = db.get(RoleInvite, invite_id)
     if inv is None:
         raise NotFound("Role email")
+    role = db.get(Role, inv.role_id)
+    if role and role.rank >= p.rank and "admin" not in p.roles and "owner" not in p.roles:
+        raise Forbidden("You cannot manage an invitation for a role at or above your own rank")
+    if getattr(inv, "company_id", None) and not p.can_access_company(inv.company_id):
+        raise Forbidden("You cannot manage invitations for this company")
     if inv.claimed_at is not None:
         raise Conflict("INVITE_CLAIMED", "This person has already signed up")
     _send_invitation(db, db.get(Role, inv.role_id), inv.email, has_account=False, user_id=None)
@@ -84,6 +106,11 @@ def revoke_invite(db: Session, p: Principal, invite_id: int, request: Request) -
     inv = db.get(RoleInvite, invite_id)
     if inv is None:
         raise NotFound("Role email")
+    role = db.get(Role, inv.role_id)
+    if role and role.rank >= p.rank and "admin" not in p.roles and "owner" not in p.roles:
+        raise Forbidden("You cannot manage an invitation for a role at or above your own rank")
+    if getattr(inv, "company_id", None) and not p.can_access_company(inv.company_id):
+        raise Forbidden("You cannot manage invitations for this company")
     if inv.claimed_at is not None:
         raise Conflict("INVITE_CLAIMED", "This email has already signed up. Change the person's role under Employees.")
     audit.log(db, p.user.id, "ROLE_INVITE_REVOKED", "role_invite", inv.id, before={"email": inv.email}, request=request)
@@ -111,6 +138,13 @@ def apply_at_signup(db: Session, inv: RoleInvite, user: User, emp: Employee, req
     db.query(UserRole).filter(UserRole.user_id == user.id).delete()
     db.add(UserRole(user_id=user.id, role_id=role.id, granted_by=inv.created_by))
     inv.claimed_user_id, inv.claimed_at = user.id, clock.utcnow()
+    cid = getattr(inv, "company_id", None)
+    if cid:
+        emp.company_id = cid
+        if role.code == "ceo":
+            from app.modules.org.models import CompanyCEO
+            if not db.scalar(select(CompanyCEO.company_id).where(CompanyCEO.company_id == cid, CompanyCEO.user_id == user.id)):
+                db.add(CompanyCEO(company_id=cid, user_id=user.id, granted_by_user_id=inv.created_by))
     if role.code in MANAGEMENT_ROLES:
         mgmt = db.scalar(select(Department).where(Department.code == MGMT_CODE))
         if mgmt is not None:

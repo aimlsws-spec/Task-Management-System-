@@ -17,7 +17,7 @@ type TaskRow = { id: number; task_no: string; title: string; status: string; pri
 type Detail = ProjectSummary & {
   assignee: Person | null; progress_pct: number;
   members: Person[]; points: Point[]; tasks: TaskRow[]; completed_at: string | null; review_note: string | null; reviewed_by: string | null;
-  can_manage: boolean; can_complete: boolean;
+  can_manage: boolean; can_head_complete?: boolean; can_complete: boolean;
 };
 
 const POINT_TONE = { open: "orange", assigned: "blue", done: "green", cancelled: "grey" } as const;
@@ -65,15 +65,39 @@ export function ProjectDetail() {
         <div className="ml-auto h-1.5 w-40 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} /></div>
       </div>
 
+      {d.ready_for_review && d.can_head_complete && (
+        <Card className="mb-5 border-blue-200 bg-blue-50 p-5">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 text-blue-600" size={20} />
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold text-blue-900">All points & tasks finished — Head Review</h2>
+              <p className="text-sm text-blue-800">Check the deliverables against the expected result. When verified, submit this project to the Owner and CEO for final sign-off.</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Input className="max-w-sm bg-white" placeholder="Review note for Owner / CEO (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+                <Button disabled={complete.isPending} onClick={() => complete.mutate()}>Review & Submit to Owner/CEO Panel</Button>
+              </div>
+              <div className="mt-2"><ErrorNote error={complete.error} /></div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {d.head_reviewed_at && d.status !== "completed" && (
+        <Card className="mb-5 border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">
+          <b>Head Review Submitted:</b> Reviewed by {d.head_reviewed_by ?? "Head"} on {fmtDateTime(d.head_reviewed_at, tz)}
+          {d.head_review_note && <div className="mt-1 text-slate-700">“{d.head_review_note}”</div>}
+        </Card>
+      )}
+
       {d.ready_for_review && d.can_complete && (
         <Card className="mb-5 border-violet-200 bg-violet-50 p-5">
           <div className="flex items-start gap-3">
             <CheckCircle2 className="mt-0.5 text-violet-600" size={20} />
             <div className="flex-1">
-              <h2 className="text-sm font-semibold text-violet-900">Everything is done and reviewed</h2>
-              <p className="text-sm text-violet-800">Check the expected result below. When you are satisfied, mark the project completed. Adding a new point later reopens it.</p>
+              <h2 className="text-sm font-semibold text-violet-900">Final Leadership Review (Owner / CEO)</h2>
+              <p className="text-sm text-violet-800">Check the expected result below and head review notes. When satisfied, mark the project completed. Adding a new point later reopens it.</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Input className="max-w-sm bg-white" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+                <Input className="max-w-sm bg-white" placeholder="Completion note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
                 <Button disabled={complete.isPending} onClick={() => complete.mutate()}>Mark project completed</Button>
               </div>
               <div className="mt-2"><ErrorNote error={complete.error} /></div>
@@ -84,6 +108,7 @@ export function ProjectDetail() {
       {d.status === "completed" && (
         <Card className="mb-5 border-green-200 bg-green-50 p-4 text-sm text-green-900">
           <b>Completed</b> {d.completed_at && fmtDateTime(d.completed_at, tz)}{d.reviewed_by && <> · reviewed by {d.reviewed_by}</>}{d.review_note && <> · “{d.review_note}”</>}
+          {d.head_reviewed_by && <div className="mt-1 text-xs text-green-800">Head sign-off: {d.head_reviewed_by}{d.head_review_note ? ` — “${d.head_review_note}”` : ""}</div>}
         </Card>
       )}
 
@@ -125,11 +150,24 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [assignee, setAssignee] = useState(d.assignee ? String(d.assignee.id) : "");
   const [head, setHead] = useState(d.head ? String(d.head.id) : "");
-  const [qa, setQa] = useState(d.qa ? String(d.qa.id) : "");
+  const [subHead, setSubHead] = useState(d.sub_head ? String(d.sub_head.id) : "");
+  const [selectedQAs, setSelectedQAs] = useState<number[]>(d.qa_members ? d.qa_members.map((q) => q.id) : (d.qa ? [d.qa.id] : []));
   const [dates, setDates] = useState({ starts_on: d.starts_on ?? "", ends_on: d.ends_on ?? "" });
   const [team, setTeam] = useState<number[]>(d.members.map((m) => m.id));
   const save = useMutation({
-    mutationFn: () => api(`/projects/${d.id}`, { method: "PATCH", body: { assignee_id: assignee ? Number(assignee) : null, head_employee_id: head ? Number(head) : null, qa_employee_id: qa ? Number(qa) : null, member_ids: team, starts_on: dates.starts_on || null, ...(dates.ends_on ? { ends_on: dates.ends_on } : {}) } }),
+    mutationFn: () => api(`/projects/${d.id}`, {
+      method: "PATCH",
+      body: {
+        assignee_id: assignee ? Number(assignee) : null,
+        head_employee_id: head ? Number(head) : null,
+        sub_head_employee_id: subHead ? Number(subHead) : null,
+        qa_employee_id: selectedQAs[0] ?? null,
+        qa_employee_ids: selectedQAs,
+        member_ids: team,
+        starts_on: dates.starts_on || null,
+        ...(dates.ends_on ? { ends_on: dates.ends_on } : {}),
+      },
+    }),
     onSuccess: () => { setEditing(false); onSaved(); },
   });
   return (
@@ -138,8 +176,18 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
       {!editing ? (
         <div className="space-y-3 text-sm">
           <div><div className="text-xs text-slate-500">Assigned employee</div>{d.assignee ? <div className="font-medium text-brand-ink">{d.assignee.full_name}</div> : <div className="text-slate-500">No primary employee assigned</div>}</div>
-          <div><div className="text-xs text-slate-500">Project head</div>{d.head ? <div className="font-medium">{d.head.full_name}</div> : <div className="text-slate-500">None: tasks are assigned directly and go straight to the CEO/Owner for review.</div>}</div>
-          <div><div className="text-xs text-slate-500">QA tester</div>{d.qa ? <div className="font-medium">{d.qa.full_name}</div> : <div className="text-slate-500">None: finished work goes straight to the head or the CEO/Owner.</div>}</div>
+          <div><div className="text-xs text-slate-500">Project head</div>{d.head ? <div className="font-medium">{d.head.full_name}</div> : <div className="text-slate-500">None: fallback to department head</div>}</div>
+          <div><div className="text-xs text-slate-500">Project sub-head</div>{d.sub_head ? <div className="font-medium">{d.sub_head.full_name}</div> : <div className="text-slate-500">None: fallback to department sub-head</div>}</div>
+          <div>
+            <div className="text-xs text-slate-500">Assigned QA members</div>
+            {d.qa_members && d.qa_members.length ? (
+              <div className="font-medium">{d.qa_members.map((q) => q.full_name).join(", ")}</div>
+            ) : d.qa ? (
+              <div className="font-medium">{d.qa.full_name}</div>
+            ) : (
+              <div className="text-slate-500">None: finished work goes straight to the head or CEO/Owner.</div>
+            )}
+          </div>
           <div><div className="text-xs text-slate-500">Deadline</div><div>{d.ends_on ? <span className="font-medium">{d.ends_on}{d.starts_on ? ` (started ${d.starts_on})` : ""}</span> : <span className="text-slate-500">Not set: edit and add one</span>}</div></div>
           <div><div className="text-xs text-slate-500">Team</div>{d.members.length ? <ul className="mt-1 space-y-0.5">{d.members.map((m) => <li key={m.id}>{m.full_name}</li>)}</ul> : <div className="text-slate-500">Open: tasks can go to anyone you can assign to.</div>}</div>
         </div>
@@ -151,9 +199,24 @@ function TeamCard({ d, onSaved }: { d: Detail; onSaved: () => void }) {
           <Field label="Project head">
             <Select value={head} onChange={(e) => setHead(e.target.value)}><option value="">Fallback to department head</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
           </Field>
-          <Field label="QA tester">
-            <Select value={qa} onChange={(e) => setQa(e.target.value)}><option value="">No QA</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
+          <Field label="Project sub-head">
+            <Select value={subHead} onChange={(e) => setSubHead(e.target.value)}><option value="">Fallback to department sub-head</option>{emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select>
           </Field>
+          <div>
+            <div className="mb-1 text-xs font-medium text-slate-700">Assigned QA members ({selectedQAs.length} selected)</div>
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
+              {emps.data?.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedQAs.includes(e.id)}
+                    onChange={() => setSelectedQAs((qas) => (qas.includes(e.id) ? qas.filter((x) => x !== e.id) : [...qas, e.id]))}
+                  />
+                  <span>{e.full_name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Start date"><Input type="date" value={dates.starts_on} onChange={(e) => setDates({ ...dates, starts_on: e.target.value })} /></Field>
             <Field label="Project deadline (required)"><Input required type="date" min={dates.starts_on || undefined} value={dates.ends_on} onChange={(e) => setDates({ ...dates, ends_on: e.target.value })} /></Field>

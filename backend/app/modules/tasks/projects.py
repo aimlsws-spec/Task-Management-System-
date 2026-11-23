@@ -11,10 +11,10 @@ from app.core import clock
 from app.core.errors import AppError, Conflict, Forbidden, NotFound
 from app.modules.audit import service as audit
 from app.modules.notifications import outbox
-from app.modules.org.models import Employee
+from app.modules.org.models import Department, Employee
 from app.modules.rbac.policy import Principal
 from app.modules.tasks import loop
-from app.modules.tasks.models import Project, ProjectMember, ProjectPoint, Task
+from app.modules.tasks.models import Project, ProjectMember, ProjectPoint, ProjectQAMember, Task
 from app.modules.workcal import service as cal
 
 LEADERSHIP_ROLES = {"owner", "ceo"}
@@ -48,9 +48,18 @@ def team_ids(db: Session, pr: Project) -> set[int]:
     return set(db.scalars(select(ProjectMember.employee_id).where(ProjectMember.project_id == pr.id)))
 
 
+def project_qa_ids(db: Session, pr: Project) -> set[int]:
+    ids = set(db.scalars(select(ProjectQAMember.employee_id).where(ProjectQAMember.project_id == pr.id)))
+    if pr.qa_employee_id:
+        ids.add(pr.qa_employee_id)
+    return ids
+
+
 def can_view(db: Session, p: Principal, pr: Project) -> bool:
+    if not p.can_access_company(getattr(pr, "company_id", 1)):
+        return False
     me = _me(p)
-    if p.has("project.manage") or me in (pr.assignee_id, pr.head_employee_id, pr.qa_employee_id) or me in team_ids(db, pr):
+    if p.has("project.manage") or me in (pr.assignee_id, pr.head_employee_id, getattr(pr, "sub_head_employee_id", None), pr.qa_employee_id) or me in team_ids(db, pr) or me in project_qa_ids(db, pr):
         return True
     return db.scalar(select(Task.id).where(Task.project_id == pr.id, or_(Task.assignee_id == me, Task.assigned_by_id == me)).limit(1)) is not None
 
@@ -91,18 +100,46 @@ def counts(db: Session, pr: Project) -> dict:
 
 def summary(db: Session, pr: Project) -> dict:
     c = counts(db, pr)
+    head_reviewer = db.scalar(select(Employee.full_name).where(Employee.user_id == pr.head_reviewed_by_user_id)) if getattr(pr, "head_reviewed_by_user_id", None) else None
     return {
         "id": pr.id, "code": pr.code, "name": pr.name, "description": pr.description, "status": pr.status,
-        "expected_result": pr.expected_result, "head": _person(db, pr.head_employee_id), "qa": _person(db, pr.qa_employee_id),
+        "expected_result": pr.expected_result, "head": _person(db, pr.head_employee_id),
+        "sub_head": _person(db, getattr(pr, "sub_head_employee_id", None)),
+        "qa": _person(db, pr.qa_employee_id),
+        "qa_members": [_person(db, qid) for qid in sorted(project_qa_ids(db, pr))],
         "assignee": _person(db, pr.assignee_id), "progress_pct": pr.progress_pct,
         "department_id": pr.department_id,
+        "company_id": getattr(pr, "company_id", 1),
+        "head_reviewed_at": _z(getattr(pr, "head_reviewed_at", None)),
+        "head_reviewed_by": head_reviewer,
+        "head_review_note": getattr(pr, "head_review_note", None),
         "starts_on": pr.starts_on.isoformat() if pr.starts_on else None, "ends_on": pr.ends_on.isoformat() if pr.ends_on else None,
         "counts": c, "ready_for_review": c["ready_for_review"],
     }  # fmt: skip
 
 
-def list_projects(db: Session, p: Principal) -> list[dict]:
-    return [summary(db, pr) for pr in db.scalars(select(Project).order_by(Project.name)) if can_view(db, p, pr)]
+def can_head_submit(db: Session, p: Principal, pr: Project) -> bool:
+    if pr.status != "active" or not counts(db, pr)["ready_for_review"] or pr.head_reviewed_at is not None:
+        return False
+    if is_leadership(p):
+        return False
+    me = _me(p)
+    if not me:
+        return False
+    if me in (pr.head_employee_id, getattr(pr, "sub_head_employee_id", None)):
+        return True
+    if pr.department_id:
+        dept = db.get(Department, pr.department_id)
+        if dept and me in (dept.head_employee_id, getattr(dept, "sub_head_employee_id", None)):
+            return True
+    return False
+
+
+def list_projects(db: Session, p: Principal, company_id: int | None = None) -> list[dict]:
+    q = select(Project).order_by(Project.name)
+    if company_id is not None:
+        q = q.where(Project.company_id == company_id)
+    return [summary(db, pr) for pr in db.scalars(q) if can_view(db, p, pr)]
 
 
 def detail(db: Session, p: Principal, pr: Project) -> dict:
@@ -127,7 +164,9 @@ def detail(db: Session, p: Principal, pr: Project) -> dict:
     return out | {
         "members": members, "points": points, "tasks": tasks, "completed_at": _z(pr.completed_at), "review_note": pr.review_note,
         "reviewed_by": reviewer, "created_at": _z(pr.created_at),
-        "can_manage": p.has("project.manage"), "can_complete": is_leadership(p) and p.has("project.manage"),
+        "can_manage": p.has("project.manage"),
+        "can_head_complete": can_head_submit(db, p, pr),
+        "can_complete": is_leadership(p) and p.has("project.manage") and pr.status == "active" and out["ready_for_review"],
     }  # fmt: skip
 
 
@@ -188,15 +227,38 @@ def _set_head(db: Session, p: Principal, pr: Project, head_id: int | None, reque
     resettle_reviews(db, p, pr, request)
 
 
-def _set_qa(db: Session, p: Principal, pr: Project, qa_id: int | None, request: Request | None) -> None:
-    if qa_id == pr.qa_employee_id:
+def _set_sub_head(db: Session, p: Principal, pr: Project, sub_head_id: int | None, request: Request | None) -> None:
+    if sub_head_id == getattr(pr, "sub_head_employee_id", None):
         return
-    qa = _employee(db, qa_id, "QA") if qa_id is not None else None
-    pr.qa_employee_id = qa_id
+    sub_head = _employee(db, sub_head_id, "project sub-head") if sub_head_id is not None else None
+    pr.sub_head_employee_id = sub_head_id
     db.flush()
-    if qa is not None:
-        _tell(db, p, "PROJECT_QA_NAMED", pr, qa)
+    if sub_head is not None:
+        _tell(db, p, "PROJECT_SUB_HEAD_NAMED", pr, sub_head)
     resettle_reviews(db, p, pr, request)
+
+
+def _set_qa_members(db: Session, p: Principal, pr: Project, qa_ids: list[int] | None, request: Request | None) -> None:
+    if qa_ids is None:
+        return
+    wanted = set(qa_ids)
+    for qid in wanted:
+        _employee(db, qid, "QA")
+    have = set(db.scalars(select(ProjectQAMember.employee_id).where(ProjectQAMember.project_id == pr.id)))
+    for qid in have - wanted:
+        db.query(ProjectQAMember).filter(ProjectQAMember.project_id == pr.id, ProjectQAMember.employee_id == qid).delete()
+    for qid in wanted - have:
+        db.add(ProjectQAMember(project_id=pr.id, employee_id=qid))
+        _tell(db, p, "PROJECT_QA_NAMED", pr, db.get(Employee, qid))
+    primary_qa = sorted(wanted)[0] if wanted else None
+    if pr.qa_employee_id != primary_qa:
+        pr.qa_employee_id = primary_qa
+    db.flush()
+    resettle_reviews(db, p, pr, request)
+
+
+def _set_qa(db: Session, p: Principal, pr: Project, qa_id: int | None, request: Request | None) -> None:
+    _set_qa_members(db, p, pr, [qa_id] if qa_id is not None else [], request)
 
 
 def resettle_reviews(db: Session, p: Principal, pr: Project, request: Request | None) -> None:
@@ -217,6 +279,7 @@ def reopen_if_completed(db: Session, p: Principal, pr: Project, why: str, reques
     """New work in a completed project puts it back to active: it is not finished any more."""
     if pr.status == "completed":
         pr.status, pr.completed_at, pr.reviewed_by_user_id, pr.review_note = "active", None, None, None
+        pr.head_reviewed_at, pr.head_reviewed_by_user_id, pr.head_review_note = None, None, None
         audit.log(db, p.user.id, "PROJECT_REOPENED", "project", pr.id, after={"why": why}, request=request)
 
 
@@ -228,7 +291,8 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
     code = (d.get("code") or "").upper() or _code_for(db, name)
     if db.scalar(select(Project.id).where(Project.code == code)):
         raise Conflict("PROJECT_EXISTS", "A project with this code already exists")
-    s, e = d.get("starts_on"), d.get("ends_on")
+    s = d.get("starts_on") or cal.utc_to_local(db, clock.utcnow()).date()
+    e = d.get("ends_on")
     if e is None:
         raise AppError("DEADLINE_REQUIRED", "A project needs a deadline (end date)", 422)
     if e < cal.utc_to_local(db, clock.utcnow()).date():
@@ -236,13 +300,17 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
     if s and e < s:
         raise AppError("INVALID_DATES", "End date cannot be before start date", 422)
 
+    company_id = d.get("company_id") or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else 1)
+    if not p.can_access_company(company_id):
+        raise Forbidden("You cannot create projects for this company")
+
     head_id = d.get("head_employee_id")
+    sub_head_id = d.get("sub_head_employee_id")
     assignee_id = d.get("assignee_id")
     member_ids = d.get("member_ids") or []
     department_id = d.get("department_id")
 
-    if head_id is None:
-        from app.modules.org.models import Department
+    if head_id is None and sub_head_id is None:
         target_emp = None
         if assignee_id:
             target_emp = db.get(Employee, assignee_id)
@@ -251,24 +319,32 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
         dept_id = target_emp.department_id if target_emp else department_id
         if dept_id:
             dept = db.get(Department, dept_id)
-            if dept and dept.head_employee_id:
+            if dept:
                 head_id = dept.head_employee_id
+                sub_head_id = getattr(dept, "sub_head_employee_id", None)
+
+    qa_ids = d.get("qa_employee_ids")
+    if qa_ids is None and d.get("qa_employee_id"):
+        qa_ids = [d["qa_employee_id"]]
 
     pr = Project(code=code, name=name, description=d.get("description"), expected_result=d.get("expected_result"),
-                 department_id=department_id, starts_on=s, ends_on=e, owner_employee_id=p.employee.id if p.employee else None,
+                 department_id=department_id, company_id=company_id, starts_on=s, ends_on=e,
+                 owner_employee_id=p.employee.id if p.employee else None,
                  assignee_id=assignee_id, progress_pct=0)
     db.add(pr)
     db.flush()
     _set_head(db, p, pr, head_id, request)
-    _set_qa(db, p, pr, d.get("qa_employee_id"), request)
+    _set_sub_head(db, p, pr, sub_head_id, request)
+    _set_qa_members(db, p, pr, qa_ids or [], request)
     _set_members(db, p, pr, member_ids)
     for pt in d.get("points") or []:
         _new_point(db, p, pr, pt)
     outbox.emit(db, "PROJECT_CREATED", None, p.user.id, {"after": {
-        "project_id": pr.id, "project": pr.name, **_facts(pr), "head": _name(db, pr.head_employee_id), "qa": _name(db, pr.qa_employee_id),
+        "project_id": pr.id, "project": pr.name, **_facts(pr), "head": _name(db, pr.head_employee_id),
+        "sub_head": _name(db, pr.sub_head_employee_id), "qa": _name(db, pr.qa_employee_id),
         "team": ", ".join(_name(db, i) for i in sorted(team_ids(db, pr)))}})
     audit.log(db, p.user.id, "PROJECT_CREATED", "project", pr.id,
-              after={"code": pr.code, "name": pr.name, "assignee_id": pr.assignee_id, "head_employee_id": pr.head_employee_id, "qa_employee_id": pr.qa_employee_id, "points": len(d.get("points") or [])}, request=request)  # fmt: skip
+              after={"code": pr.code, "name": pr.name, "company_id": pr.company_id, "assignee_id": pr.assignee_id, "head_employee_id": pr.head_employee_id, "sub_head_employee_id": pr.sub_head_employee_id, "qa_employee_id": pr.qa_employee_id, "points": len(d.get("points") or [])}, request=request)  # fmt: skip
     return pr
 
 
@@ -285,6 +361,11 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
         if k in d and getattr(pr, k) != d[k]:
             before[k], after[k] = str(getattr(pr, k)), str(d[k])
             setattr(pr, k, d[k])
+    if "company_id" in d and d["company_id"] != pr.company_id:
+        if not p.can_access_company(d["company_id"]):
+            raise Forbidden("Access denied for this company")
+        before["company_id"], after["company_id"] = pr.company_id, d["company_id"]
+        pr.company_id = d["company_id"]
     if "status" in d and d["status"] != pr.status:
         if pr.status == "completed" and d["status"] == "active":
             reopen_if_completed(db, p, pr, "reopened by hand", request)
@@ -298,7 +379,14 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
     if "head_employee_id" in d:
         before["head_employee_id"], after["head_employee_id"] = pr.head_employee_id, d["head_employee_id"]
         _set_head(db, p, pr, d["head_employee_id"], request)
-    if "qa_employee_id" in d:
+    if "sub_head_employee_id" in d:
+        before["sub_head_employee_id"], after["sub_head_employee_id"] = getattr(pr, "sub_head_employee_id", None), d["sub_head_employee_id"]
+        _set_sub_head(db, p, pr, d["sub_head_employee_id"], request)
+    if "qa_employee_ids" in d and d["qa_employee_ids"] is not None:
+        before["qa_members"] = sorted(project_qa_ids(db, pr))
+        after["qa_members"] = sorted(d["qa_employee_ids"])
+        _set_qa_members(db, p, pr, d["qa_employee_ids"], request)
+    elif "qa_employee_id" in d:
         before["qa_employee_id"], after["qa_employee_id"] = pr.qa_employee_id, d["qa_employee_id"]
         _set_qa(db, p, pr, d["qa_employee_id"], request)
     if "member_ids" in d and d["member_ids"] is not None:
@@ -310,8 +398,6 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
     if "progress_pct" in d and d["progress_pct"] != pr.progress_pct:
         before["progress_pct"], after["progress_pct"] = pr.progress_pct, d["progress_pct"]
         pr.progress_pct = d["progress_pct"]
-    if after:
-        audit.log(db, p.user.id, "PROJECT_UPDATED", "project", pr.id, before=before, after=after, request=request)
     if after:
         audit.log(db, p.user.id, "PROJECT_UPDATED", "project", pr.id, before=before, after=after, request=request)
 
@@ -450,10 +536,15 @@ def announce_stage(db: Session, p: Principal, t: Task, request: Request | None) 
 def my_turn_to_review(db: Session, p: Principal, t: Task) -> bool:
     if t.status != "under_review" or not t.review_stage:
         return False
-    if t.review_stage in ("qa", "head"):
-        who = loop.qa_id(db, t) if t.review_stage == "qa" else loop.head_id(db, t)
-        return bool(p.employee and who == p.employee.id and t.assignee_id != p.employee.id)
-    return is_leadership(p) and not (p.employee and p.employee.id == t.assignee_id and p.rank < 100)
+    if not p.employee:
+        return is_leadership(p) and t.review_stage == "leadership"
+    if p.employee.id == t.assignee_id and p.rank < 100:
+        return False
+    if t.review_stage == "qa":
+        return p.employee.id in loop.qa_ids(db, t)
+    if t.review_stage == "head":
+        return p.employee.id in loop.effective_heads(db, t)
+    return is_leadership(p)
 
 
 def first_stage(db: Session, t: Task) -> str:
@@ -470,13 +561,26 @@ def check_ready(db: Session, pr: Project) -> None:
 
 
 def complete_project(db: Session, p: Principal, project_id: int, note: str | None, request: Request) -> Project:
-    if not is_leadership(p):
-        raise Forbidden("Only the Owner or CEO can mark a project completed")
+    if p.rank < 40 or not (is_leadership(p) or p.has("project.manage")):
+        raise Forbidden("Only project leaders or leadership can complete or submit projects")
     pr = get_project(db, project_id)
     if pr.status == "completed":
         raise Conflict("ALREADY_COMPLETED", "This project is already completed")
     if not counts(db, pr)["ready_for_review"]:
         raise Conflict("PROJECT_NOT_READY", "Every point must be assigned and every task completed (or cancelled) first")
+
+    # If caller is Head or SubHead (not leadership)
+    if not is_leadership(p):
+        if not can_head_submit(db, p, pr):
+            raise Forbidden("Only the project Head, SubHead, Owner, or CEO can review and submit or complete this project")
+        pr.head_reviewed_at = clock.utcnow()
+        pr.head_reviewed_by_user_id = p.user.id
+        pr.head_review_note = (note or "").strip() or None
+        audit.log(db, p.user.id, "PROJECT_SUBMITTED_FOR_LEADERSHIP", "project", pr.id, after={"note": pr.head_review_note}, request=request)
+        outbox.emit(db, "PROJECT_READY_FOR_REVIEW", None, None, {"after": {"project_id": pr.id, "project": pr.name, "head_note": pr.head_review_note}})
+        return pr
+
+    # Caller is Owner or CEO (leadership)
     pr.status, pr.completed_at, pr.reviewed_by_user_id, pr.review_note = "completed", clock.utcnow(), p.user.id, (note or "").strip() or None
     audit.log(db, p.user.id, "PROJECT_COMPLETED", "project", pr.id, after={"note": pr.review_note}, request=request)
     outbox.emit(db, "PROJECT_COMPLETED", None, p.user.id, {"after": {"project_id": pr.id, "project": pr.name}})

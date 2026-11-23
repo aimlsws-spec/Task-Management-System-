@@ -19,15 +19,41 @@ from app.core import clock
 from app.core.db import PK, Base, UTCDateTime
 
 
+class Company(Base):
+    __tablename__ = "companies"
+
+    id: Mapped[int] = mapped_column(PK, primary_key=True)
+    name: Mapped[str] = mapped_column(String(150))
+    code: Mapped[str] = mapped_column(String(50), unique=True)
+    logo_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
+
+
+class CompanyCEO(Base):
+    """CEO access authorization to companies granted by the Owner."""
+
+    __tablename__ = "company_ceos"
+
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    granted_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    granted_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
+
+
 class Department(Base):
     __tablename__ = "departments"
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), default=1)
     name: Mapped[str] = mapped_column(String(100), unique=True)
     code: Mapped[str] = mapped_column(String(30), unique=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     head_employee_id: Mapped[int | None] = mapped_column(
         ForeignKey("employees.id", use_alter=True, name="fk_dept_head"), nullable=True
+    )
+    sub_head_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", use_alter=True, name="fk_dept_sub_head"), nullable=True
     )
     # ADR 008: the department's QA tester. Work finished by anyone in the department goes to this person first (unless the
     # task or its project names its own QA). Empty = no QA step for the department.
@@ -48,6 +74,7 @@ class Employee(Base):
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), default=1)
     employee_code: Mapped[str] = mapped_column(String(30), unique=True)
     full_name: Mapped[str] = mapped_column(String(150))
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -102,6 +129,7 @@ class RoleInvite(Base):
     __tablename__ = "role_invites"
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

@@ -25,10 +25,12 @@ from app.modules.tasks.models import (
     TERMINAL,
     ExtensionRequest,
     Project,
+    ProjectQAMember,
     Task,
     TaskAssignment,
     TaskCategory,
     TaskDeadlineHistory,
+    TaskQAMember,
     TaskStatusHistory,
     TaskType,
 )
@@ -47,25 +49,97 @@ def z(dt: datetime | None) -> str | None:
 
 
 def visible_clause(p: Principal):
-    """Tasks I may see: held by someone in my `task.view` scope, or created (assigned) by me."""
+    """Tasks I may see: held by someone in my `task.view` scope, or created (assigned) by me, or where I am head/subhead/QA."""
+    cids = p.company_ids()
+    company_filter = Task.company_id.in_(cids) if cids is not None else true()
     ids = p.scope_employee_ids("task.view")
     if ids is None:
-        return true()
+        return company_filter
     me = p.employee.id if p.employee else -1
-    heads_project = Task.project_id.in_(select(Project.id).where(or_(Project.head_employee_id == me, Project.qa_employee_id == me)))  # a project head / QA sees the project's tasks
-    tests_dept = Task.assignee_id.in_(select(Employee.id).where(Employee.department_id.in_(select(Department.id).where(Department.qa_employee_id == me))))  # a department's QA tester sees its work (ADR 008)
-    return or_(Task.assignee_id.in_(ids), Task.assigned_by_id == me, Task.head_employee_id == me, Task.qa_employee_id == me, heads_project, tests_dept)
+    heads_project = Task.project_id.in_(
+        select(Project.id).where(
+            or_(
+                Project.head_employee_id == me,
+                Project.sub_head_employee_id == me,
+                Project.qa_employee_id == me,
+                Project.id.in_(select(ProjectQAMember.project_id).where(ProjectQAMember.employee_id == me)),
+            )
+        )
+    )
+    tests_dept = Task.assignee_id.in_(
+        select(Employee.id).where(
+            Employee.department_id.in_(
+                select(Department.id).where(
+                    or_(
+                        Department.qa_employee_id == me,
+                        Department.head_employee_id == me,
+                        Department.sub_head_employee_id == me,
+                    )
+                )
+            )
+        )
+    )
+    task_qa = Task.id.in_(select(TaskQAMember.task_id).where(TaskQAMember.employee_id == me))
+    return and_(
+        company_filter,
+        or_(
+            Task.assignee_id.in_(ids),
+            Task.assigned_by_id == me,
+            Task.head_employee_id == me,
+            Task.sub_head_employee_id == me,
+            Task.qa_employee_id == me,
+            task_qa,
+            heads_project,
+            tests_dept,
+        ),
+    )
 
 
 def get_visible_task(db: Session, p: Principal, task_id: int) -> Task:
     t = db.get(Task, task_id)
+    if t is None or not p.can_access_company(getattr(t, "company_id", 1)):
+        raise NotFound("Task")
     ids = p.scope_employee_ids("task.view")
+    if ids is None:
+        return t
     me = p.employee.id if p.employee else -1
-    heads_it = t is not None and t.project_id is not None and db.scalar(select(Project.id).where(Project.id == t.project_id, or_(Project.head_employee_id == me, Project.qa_employee_id == me))) is not None
-    tests_it = t is not None and db.scalar(select(Employee.id).join(Department, Department.id == Employee.department_id).where(Employee.id == t.assignee_id, Department.qa_employee_id == me)) is not None
-    if t is None or not (ids is None or t.assignee_id in ids or t.assigned_by_id == me or t.head_employee_id == me or t.qa_employee_id == me or heads_it or tests_it):
-        raise NotFound("Task")  # out-of-scope looks exactly like missing
-    return t
+    if (
+        t.assignee_id in ids
+        or t.assigned_by_id == me
+        or t.head_employee_id == me
+        or getattr(t, "sub_head_employee_id", None) == me
+        or t.qa_employee_id == me
+    ):
+        return t
+    if db.scalar(select(TaskQAMember.task_id).where(TaskQAMember.task_id == t.id, TaskQAMember.employee_id == me)):
+        return t
+    if t.project_id is not None:
+        heads_it = db.scalar(
+            select(Project.id).where(
+                Project.id == t.project_id,
+                or_(
+                    Project.head_employee_id == me,
+                    Project.sub_head_employee_id == me,
+                    Project.qa_employee_id == me,
+                    Project.id.in_(select(ProjectQAMember.project_id).where(ProjectQAMember.employee_id == me)),
+                ),
+            )
+        ) is not None
+        if heads_it:
+            return t
+    dept_match = db.scalar(
+        select(Employee.id).join(Department, Department.id == Employee.department_id).where(
+            Employee.id == t.assignee_id,
+            or_(
+                Department.qa_employee_id == me,
+                Department.head_employee_id == me,
+                Department.sub_head_employee_id == me,
+            ),
+        )
+    ) is not None
+    if dept_match:
+        return t
+    raise NotFound("Task")
 
 
 def can_manage(p: Principal, t: Task, perm: str) -> bool:
@@ -127,9 +201,12 @@ def task_dict(db: Session, t: Task, assignee: Employee | None = None, assigner: 
     assigner = assigner or db.get(Employee, t.assigned_by_id)
     out = {
         "id": t.id, "task_no": t.task_no, "title": t.title, "status": t.status, "priority": t.priority,
+        "company_id": getattr(t, "company_id", 1),
         "assignee": _person(assignee), "assigned_by": _person(assigner), "department_id": t.department_id,
         "head": _person(db.get(Employee, loop.head_id(db, t))) if loop.head_id(db, t) else None,
+        "sub_head": _person(db.get(Employee, loop.sub_head_id(db, t))) if loop.sub_head_id(db, t) else None,
         "qa": _person(db.get(Employee, loop.qa_id(db, t))) if loop.qa_id(db, t) else None,
+        "qa_members": [_person(db.get(Employee, eid)) for eid in loop.qa_ids(db, t)],
         "project_id": t.project_id, "category_id": t.category_id, "type_id": t.type_id,
         "assigned_at": z(t.assigned_at), "start_date": t.start_date.isoformat() if t.start_date else None,
         "original_due_at": z(t.original_due_at), "due_at": z(t.due_at), "extension_count": t.extension_count,
@@ -231,8 +308,14 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
     due = resolve_due(db, d["due_date"])
     if due <= now:
         raise AppError("PAST_DEADLINE", "The deadline must be in the future", 422)
-    if d.get("start_date") and d["start_date"] > d["due_date"]:
+    start_date = d.get("start_date") or cal.utc_to_local(db, now).date()
+    if start_date > d["due_date"]:
         raise AppError("INVALID_START_DATE", "Start date cannot be after the deadline", 422)
+
+    company_id = d.get("company_id") or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else getattr(assignee, "company_id", 1))
+    if not p.can_access_company(company_id):
+        raise Forbidden("You cannot create tasks for this company")
+
     for model, key, label in ((Project, "project_id", "Project"), (TaskCategory, "category_id", "Category"), (TaskType, "type_id", "Type")):
         if d.get(key) is not None and db.get(model, d[key]) is None:
             raise AppError("INVALID_REFERENCE", f"{label} not found", 422)
@@ -240,37 +323,57 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
 
     project = proj.assert_can_take_task(db, d["project_id"], assignee.id) if d.get("project_id") else None
     head_id = d.get("head_employee_id")
+    sub_head_id = d.get("sub_head_employee_id")
     qa_id = d.get("qa_employee_id")
+    qa_ids = d.get("qa_employee_ids")
+    if qa_ids is None and qa_id:
+        qa_ids = [qa_id]
+    elif qa_ids and not qa_id:
+        qa_id = qa_ids[0]
+
     if not project:
-        if not head_id:
+        if not head_id and not sub_head_id:
             dept = db.get(Department, assignee.department_id)
-            if dept and dept.head_employee_id and dept.head_employee_id != assignee.id:
-                head_id = dept.head_employee_id
-        if not qa_id:
+            if dept:
+                if dept.head_employee_id and dept.head_employee_id != assignee.id:
+                    head_id = dept.head_employee_id
+                if getattr(dept, "sub_head_employee_id", None) and dept.sub_head_employee_id != assignee.id:
+                    sub_head_id = dept.sub_head_employee_id
+        if not qa_ids:
             dept = db.get(Department, assignee.department_id)
             if dept and dept.qa_employee_id and dept.qa_employee_id != assignee.id:
+                qa_ids = [dept.qa_employee_id]
                 qa_id = dept.qa_employee_id
-    for val, what in ((head_id, "head"), (qa_id, "QA")):
+
+    for val, what in ((head_id, "head"), (sub_head_id, "sub-head"), (qa_id, "QA")):
         if val is not None:
             proj.check_person(db, val, what)
+
     ttype = db.get(TaskType, d["type_id"]) if d.get("type_id") else None
     t = Task(
         task_no=f"TMP-{now.timestamp()}-{assignee.id}", title=d["title"], description=d["description"],
         instructions=d.get("instructions"), project_id=d.get("project_id"), department_id=assignee.department_id,
-        category_id=d.get("category_id"), type_id=d.get("type_id"), assignee_id=assignee.id,
-        head_employee_id=head_id, qa_employee_id=qa_id, assigned_by_id=p.employee.id, priority=d["priority"], priority_rank=PRIORITY_RANK[d["priority"]],
-        assigned_at=now, start_date=d.get("start_date"), original_due_at=due, due_at=due,
+        company_id=company_id, category_id=d.get("category_id"), type_id=d.get("type_id"), assignee_id=assignee.id,
+        head_employee_id=head_id, sub_head_employee_id=sub_head_id, qa_employee_id=qa_id, assigned_by_id=p.employee.id, priority=d["priority"], priority_rank=PRIORITY_RANK[d["priority"]],
+        assigned_at=now, start_date=start_date, original_due_at=due, due_at=due,
         estimated_seconds=int(round((d.get("estimated_hours") or DEFAULT_ESTIMATE_HOURS) * 3600)), requires_review=bool(ttype and ttype.requires_review),
     )  # fmt: skip
     db.add(t)
     db.flush()
     t.task_no = f"TSK-{t.id:06d}"
+
+    if qa_ids:
+        for qid in set(qa_ids):
+            proj.check_person(db, qid, "QA")
+            db.add(TaskQAMember(task_id=t.id, employee_id=qid))
+
     db.add(TaskAssignment(task_id=t.id, assignee_id=assignee.id, assigned_by_id=p.employee.id, assigned_at=now))
     db.add(TaskStatusHistory(task_id=t.id, from_status=None, to_status="assigned", changed_by_user_id=p.user.id, created_at=now))
     db.add(TaskDeadlineHistory(task_id=t.id, deadline_version=1, previous_due_at=None, new_due_at=due,
                                changed_by_user_id=p.user.id, change_type="initial", created_at=now))  # fmt: skip
     _log(db, p, "TASK_CREATED", t, after={"task_no": t.task_no, "title": t.title, "assignee_id": assignee.id,
                                           "priority": t.priority, "due_at": z(due), "head_employee_id": t.head_employee_id,
+                                          "sub_head_employee_id": t.sub_head_employee_id,
                                           "qa_employee_id": t.qa_employee_id}, request=request)  # fmt: skip
     proj.on_task_created(db, p, t, project, request)  # reopens a completed project, tells the head and QA
     warnings = [w for w in (cal.deadline_warning(db, due),) if w]
@@ -279,7 +382,7 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
 
 
 EDITABLE = ("title", "description", "instructions", "start_date", "project_id", "category_id", "type_id", "estimated_hours",
-            "head_employee_id", "qa_employee_id")
+            "head_employee_id", "sub_head_employee_id", "qa_employee_id", "company_id")
 
 
 def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -> None:
@@ -288,8 +391,34 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
     if t.status not in OPEN_STATUSES:
         raise AppError("TASK_CLOSED", "Completed or cancelled tasks cannot be edited", 409)
     before, after = {}, {}
+    if "company_id" in d and d["company_id"] != t.company_id:
+        if not p.can_access_company(d["company_id"]):
+            raise Forbidden("Access denied for this company")
+        before["company_id"], after["company_id"] = t.company_id, d["company_id"]
+        t.company_id = d["company_id"]
+    if "sub_head_employee_id" in d and d["sub_head_employee_id"] != getattr(t, "sub_head_employee_id", None):
+        if d["sub_head_employee_id"] is not None:
+            from app.modules.tasks import projects as proj
+            proj.check_person(db, d["sub_head_employee_id"], "sub-head")
+        before["sub_head_employee_id"], after["sub_head_employee_id"] = getattr(t, "sub_head_employee_id", None), d["sub_head_employee_id"]
+        t.sub_head_employee_id = d["sub_head_employee_id"]
+    if "qa_employee_ids" in d and d["qa_employee_ids"] is not None:
+        from app.modules.tasks import projects as proj
+        wanted = set(d["qa_employee_ids"])
+        for qid in wanted:
+            proj.check_person(db, qid, "QA")
+        current = set(db.scalars(select(TaskQAMember.employee_id).where(TaskQAMember.task_id == t.id)))
+        for qid in current - wanted:
+            db.query(TaskQAMember).filter(TaskQAMember.task_id == t.id, TaskQAMember.employee_id == qid).delete()
+        for qid in wanted - current:
+            db.add(TaskQAMember(task_id=t.id, employee_id=qid))
+        primary_qa = sorted(wanted)[0] if wanted else None
+        if t.qa_employee_id != primary_qa:
+            t.qa_employee_id = primary_qa
+        before["qa_members"], after["qa_members"] = sorted(current), sorted(wanted)
+
     for k, v in d.items():
-        if k not in EDITABLE:
+        if k not in EDITABLE or k in ("company_id", "sub_head_employee_id", "qa_employee_ids"):
             continue
         if k in ("head_employee_id", "qa_employee_id") and v is not None:
             from app.modules.tasks import projects as proj
@@ -393,18 +522,23 @@ def list_tasks(db: Session, p: Principal, f: dict, page: int, page_size: int) ->
     if f.get("mine") and p.employee:
         stmt = stmt.where(Task.assignee_id == p.employee.id)
     for key, col in (("status", Task.status), ("priority", Task.priority), ("assignee_id", Task.assignee_id),
-                     ("department_id", Task.department_id), ("project_id", Task.project_id), ("assigned_by_id", Task.assigned_by_id)):  # fmt: skip
+                     ("department_id", Task.department_id), ("project_id", Task.project_id), ("assigned_by_id", Task.assigned_by_id),
+                     ("company_id", Task.company_id)):  # fmt: skip
         if f.get(key) not in (None, ""):
             stmt = stmt.where(col == f[key])
-    if f.get("awaiting_my_review"):  # project work whose review turn is mine (ADR 003)
+    if f.get("awaiting_my_review"):  # project/task work whose review turn is mine
         turns = []
         if p.employee:
             me = p.employee.id
-            in_my_project = lambda col: Task.project_id.in_(select(Project.id).where(col == me))  # noqa: E731
-            for stage, col in (("head", "head_employee_id"), ("qa", "qa_employee_id")):
-                own, proj_col = getattr(Task, col), getattr(Project, col)
-                turns.append(and_(Task.review_stage == stage, Task.assignee_id != me,
-                                  or_(own == me, and_(own.is_(None), in_my_project(proj_col)))))  # fmt: skip
+            is_task_qa = Task.id.in_(select(TaskQAMember.task_id).where(TaskQAMember.employee_id == me))
+            is_proj_qa = Task.project_id.in_(select(ProjectQAMember.project_id).where(ProjectQAMember.employee_id == me))
+            is_dept_qa = Task.assignee_id.in_(select(Employee.id).where(Employee.department_id.in_(select(Department.id).where(Department.qa_employee_id == me))))
+            turns.append(and_(Task.review_stage == "qa", Task.assignee_id != me, or_(Task.qa_employee_id == me, is_task_qa, is_proj_qa, is_dept_qa)))
+
+            is_proj_head = Task.project_id.in_(select(Project.id).where(or_(Project.head_employee_id == me, Project.sub_head_employee_id == me)))
+            is_dept_head = Task.assignee_id.in_(select(Employee.id).where(Employee.department_id.in_(select(Department.id).where(or_(Department.head_employee_id == me, Department.sub_head_employee_id == me)))))
+            turns.append(and_(Task.review_stage == "head", Task.assignee_id != me, or_(Task.head_employee_id == me, Task.sub_head_employee_id == me, is_proj_head, is_dept_head)))
+
         if set(p.roles) & {"owner", "ceo"}:
             turns.append(Task.review_stage == "leadership")
         stmt = stmt.where(Task.status == "under_review", or_(*turns)) if turns else stmt.where(false())

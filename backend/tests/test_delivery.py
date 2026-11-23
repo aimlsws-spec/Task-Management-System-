@@ -155,7 +155,8 @@ def test_failed_email_never_blocks_the_in_app_notification_and_can_be_retried(cl
     first = rows(seeded)[0]
     r = client.post(f"{API}/admin/email-logs/{first.id}/retry", headers=as_user("admin"))
     assert r.status_code == 200 and r.json()["status"] == "queued"
-    assert client.post(f"{API}/admin/email-logs/{first.id}/retry", headers=as_user("owner")).status_code == 403
+    assert client.post(f"{API}/admin/email-logs/{first.id}/retry", headers=as_user("owner")).status_code == 200  # Owner has all Admin capabilities
+    assert client.post(f"{API}/admin/email-logs/{first.id}/retry", headers=as_user("manager")).status_code == 403
 
 
 def test_a_refused_recipient_fails_immediately_without_retrying(client, as_user, seeded, monkeypatch):
@@ -297,7 +298,8 @@ def test_admin_job_controls(client, as_user, seeded):
     mk(client, as_user, seeded)
     status = client.get(f"{API}/admin/jobs/status", headers=as_user("admin")).json()
     assert status["pending_events"] >= 1 and status["email_backend"] == "log"
-    assert client.get(f"{API}/admin/jobs/status", headers=as_user("owner")).status_code == 403
+    assert client.get(f"{API}/admin/jobs/status", headers=as_user("owner")).status_code == 200  # Owner has all Admin capabilities
+    assert client.get(f"{API}/admin/jobs/status", headers=as_user("manager")).status_code == 403
     assert client.post(f"{API}/admin/jobs/run-now", headers=as_user("manager")).status_code == 403
     r = client.post(f"{API}/admin/jobs/run-now", headers=as_user("admin"))
     assert r.status_code == 200 and r.json()["notified"] == 4

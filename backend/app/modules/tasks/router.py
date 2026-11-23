@@ -28,11 +28,14 @@ class TaskIn(Strict):
     due_date: date
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)  # optional: owners give a deadline, not an effort estimate
+    company_id: int | None = None
     project_id: int | None = None
     category_id: int | None = None
     type_id: int | None = None
     head_employee_id: int | None = None  # optional head who approves finished work; none = no head
-    qa_employee_id: int | None = None  # optional QA who tests finished work first (development tasks)
+    sub_head_employee_id: int | None = None  # optional sub-head
+    qa_employee_id: int | None = None  # optional QA
+    qa_employee_ids: list[int] | None = None  # optional multiple QA members
 
 
 class TaskPatch(Strict):
@@ -41,11 +44,14 @@ class TaskPatch(Strict):
     instructions: str | None = Field(None, max_length=20000)
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)
+    company_id: int | None = None
     project_id: int | None = None
     category_id: int | None = None
     type_id: int | None = None
     head_employee_id: int | None = None
+    sub_head_employee_id: int | None = None
     qa_employee_id: int | None = None
+    qa_employee_ids: list[int] | None = None
 
 
 class ReassignIn(Strict):
@@ -122,6 +128,7 @@ def _detail(p: Principal, t: Task) -> dict:
         st = st | {"awaiting_review": False, "latest_decision": None, "explanations": 0, "required": False, "why": None}  # not released yet
     d["delay"] = st | {"items": delays.explanations(p.db, t, p) if delays.can_see_explanations(p, t) else []}
     d |= workflow.detail_extras(p.db, t)
+    d |= workflow.ownership_for(p.db, t)
     d["attachments"] = [_att(a) for a in p.db.scalars(select(TaskAttachment).where(TaskAttachment.task_id == t.id).order_by(TaskAttachment.id))]
     return d
 
@@ -137,12 +144,13 @@ def _att(a: TaskAttachment) -> dict:
 def list_tasks(
     status: str | None = None, priority: str | None = None, assignee_id: int | None = None,
     department_id: int | None = None, project_id: int | None = None, assigned_by_id: int | None = None,
+    company_id: int | None = None,
     overdue: bool | None = None, open: bool | None = None, mine: bool | None = None, awaiting_my_review: bool | None = None,
     due_from: date | None = None, due_to: date | None = None, q: str | None = None,
     page: int = 1, page_size: int = 25, p: Principal = Depends(require("task.view")),
 ):  # fmt: skip
     f = dict(status=status, priority=priority, assignee_id=assignee_id, department_id=department_id, project_id=project_id,
-             assigned_by_id=assigned_by_id, overdue=overdue, open=open, mine=mine, awaiting_my_review=awaiting_my_review, due_from=due_from, due_to=due_to, q=q)  # fmt: skip
+             assigned_by_id=assigned_by_id, company_id=company_id, overdue=overdue, open=open, mine=mine, awaiting_my_review=awaiting_my_review, due_from=due_from, due_to=due_to, q=q)  # fmt: skip
     return service.list_tasks(p.db, p, f, max(1, page), max(1, min(page_size, 100)))
 
 

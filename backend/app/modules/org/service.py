@@ -40,19 +40,23 @@ def default_manager_id(db: Session, dept: Department, exclude_employee_id: int |
 # ---------- departments ----------
 
 
-def create_department(db: Session, p: Principal, name: str, code: str, parent_id: int | None, request: Request) -> Department:
+def create_department(db: Session, p: Principal, name: str, code: str, parent_id: int | None, request: Request, company_id: int = 1) -> Department:
+    if not p.can_access_company(company_id):
+        raise Forbidden("You cannot manage departments for this company")
     if db.scalar(select(Department.id).where((Department.name == name) | (Department.code == code))):
         raise Conflict("DEPARTMENT_EXISTS", "A department with this name or code already exists")
     if parent_id is not None and db.get(Department, parent_id) is None:
         raise AppError("INVALID_PARENT", "Parent department not found", 422)
-    d = Department(name=name, code=code.upper(), parent_id=parent_id)
+    d = Department(name=name, code=code.upper(), parent_id=parent_id, company_id=company_id)
     db.add(d)
     db.flush()
-    audit.log(db, p.user.id, "DEPARTMENT_CREATED", "department", d.id, after={"name": name, "code": d.code}, request=request)
+    audit.log(db, p.user.id, "DEPARTMENT_CREATED", "department", d.id, after={"name": name, "code": d.code, "company_id": company_id}, request=request)
     return d
 
 
 def set_department_qa(db: Session, p: Principal, dept: Department, qa_employee_id: int | None, request: Request) -> None:
+    if not p.can_access_company(getattr(dept, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     if qa_employee_id is not None:
         emp = db.get(Employee, qa_employee_id)
         if emp is None or emp.status == "inactive":
@@ -65,6 +69,8 @@ def set_department_qa(db: Session, p: Principal, dept: Department, qa_employee_i
 
 
 def set_department_head(db: Session, p: Principal, dept: Department, head_employee_id: int | None, request: Request, regroup: bool = False) -> int:
+    if not p.can_access_company(getattr(dept, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     """Sets the head. With regroup=True, members of the department are moved under the new head. Returns #moved."""
     if head_employee_id is not None:
         emp = db.get(Employee, head_employee_id)
@@ -84,6 +90,45 @@ def set_department_head(db: Session, p: Principal, dept: Department, head_employ
 
 
 HEAD_ROLE = "department_head"
+SUB_HEAD_ROLE = "sub_head"
+
+
+def set_department_sub_head(db: Session, p: Principal, dept: Department, sub_head_employee_id: int | None, request: Request) -> None:
+    if not p.can_access_company(getattr(dept, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
+    if sub_head_employee_id is not None:
+        emp = db.get(Employee, sub_head_employee_id)
+        if emp is None or emp.status == "inactive":
+            raise AppError("INVALID_SUB_HEAD", "Sub-head must be an active employee", 422)
+    before = dept.sub_head_employee_id
+    dept.sub_head_employee_id = sub_head_employee_id
+    db.flush()
+    _sync_sub_head_roles(db, p, dept, before, sub_head_employee_id)
+    audit.log(db, p.user.id, "DEPARTMENT_SUB_HEAD_CHANGED", "department", dept.id,
+              before={"sub_head_employee_id": before}, after={"sub_head_employee_id": sub_head_employee_id}, request=request)
+
+
+def _sync_sub_head_roles(db: Session, p: Principal, dept: Department, old_id: int | None, new_id: int | None) -> None:
+    role = db.scalar(select(Role).where(Role.code == SUB_HEAD_ROLE))
+    if role is None or old_id == new_id:
+        return
+    if new_id is not None:
+        user_id = db.get(Employee, new_id).user_id
+        has = db.scalar(select(UserRole.user_id).where(UserRole.user_id == user_id, UserRole.role_id == role.id))
+        if user_max_rank(db, user_id) < role.rank and not has:
+            db.add(UserRole(user_id=user_id, role_id=role.id, granted_by=p.user.id))
+            db.flush()
+            revoke_all_sessions(db, db.get(User, user_id))
+    if old_id is not None and not db.scalar(select(Department.id).where(Department.sub_head_employee_id == old_id, Department.id != dept.id)):
+        user_id = db.get(Employee, old_id).user_id
+        removed = db.query(UserRole).filter(UserRole.user_id == user_id, UserRole.role_id == role.id).delete()
+        if removed:
+            if not db.scalar(select(UserRole.user_id).where(UserRole.user_id == user_id)):
+                employee = db.scalar(select(Role).where(Role.code == "employee"))
+                if employee:
+                    db.add(UserRole(user_id=user_id, role_id=employee.id, granted_by=p.user.id))
+            db.flush()
+            revoke_all_sessions(db, db.get(User, user_id))
 
 
 def _sync_head_roles(db: Session, p: Principal, dept: Department, old_id: int | None, new_id: int | None) -> None:
@@ -135,6 +180,7 @@ def employee_dict(db: Session, e: Employee) -> dict:
     return {
         "id": e.id, "user_id": e.user_id, "employee_code": e.employee_code, "full_name": e.full_name,
         "email": u.email, "phone": e.phone, "job_title": e.job_title, "department_id": e.department_id,
+        "company_id": getattr(e, "company_id", 1),
         "status": e.status, "is_active": u.is_active, "daily_capacity_hours": float(e.daily_capacity_hours),
         "can_receive_tasks": e.can_receive_tasks, "roles": role_codes(db, e.user_id),
         "reports_to_id": current_manager_id(db, e.id),
@@ -286,10 +332,12 @@ def set_manager(db: Session, p: Principal, employee_id: int, reports_to_id: int 
                   before={"reports_to_id": old}, after={"reports_to_id": reports_to_id}, request=request)  # fmt: skip
 
 
-def hierarchy_tree(db: Session, visible_ids: set[int] | None) -> list[dict]:
+def hierarchy_tree(db: Session, visible_ids: set[int] | None, company_id: int | None = None) -> list[dict]:
     q = select(Employee).where(Employee.status != "inactive")
     if visible_ids is not None:
         q = q.where(Employee.id.in_(visible_ids))
+    if company_id is not None:
+        q = q.where(Employee.company_id == company_id)
     emps = {e.id: e for e in db.scalars(q)}
     links = {
         r.employee_id: r.reports_to_id
@@ -300,7 +348,14 @@ def hierarchy_tree(db: Session, visible_ids: set[int] | None) -> list[dict]:
         )
     }
     nodes = {
-        i: {"id": i, "full_name": e.full_name, "job_title": e.job_title, "department_id": e.department_id, "children": []}
+        i: {
+            "id": i,
+            "full_name": e.full_name,
+            "job_title": e.job_title,
+            "department_id": e.department_id,
+            "company_id": getattr(e, "company_id", 1),
+            "children": [],
+        }
         for i, e in emps.items()
     }
     roots = []

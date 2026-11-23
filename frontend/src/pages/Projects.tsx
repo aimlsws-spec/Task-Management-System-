@@ -9,7 +9,11 @@ import { useAuth } from "@/lib/auth";
 export type Person = { id: number; full_name: string; job_title: string | null };
 export type ProjectSummary = {
   id: number; code: string; name: string; description: string | null; status: string; expected_result: string | null;
-  head: Person | null; qa: Person | null; starts_on: string | null; ends_on: string | null; ready_for_review: boolean;
+  company_id?: number;
+  head: Person | null; sub_head?: Person | null; qa: Person | null; qa_members?: Person[];
+  head_reviewed_at?: string | null; head_reviewed_by?: string | null; head_review_note?: string | null;
+  can_head_complete?: boolean; can_complete?: boolean;
+  starts_on: string | null; ends_on: string | null; ready_for_review: boolean;
   assignee?: Person | null; progress_pct?: number;
   counts: { points: number; open_points: number; tasks: number; done_tasks: number; awaiting_review: number };
 };
@@ -68,9 +72,11 @@ function CreateProject({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const emps = useEmployees();
-  const [f, setF] = useState({ name: "", description: "", expected_result: "", head: "", qa: "", starts_on: "", ends_on: "" });
+  const today = new Date().toISOString().slice(0, 10);
+  const [f, setF] = useState({ name: "", description: "", expected_result: "", head: "", sub_head: "", starts_on: today, ends_on: "" });
   const [assignee, setAssignee] = useState("");
   const [team, setTeam] = useState<number[]>([]);
+  const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
   const [points, setPoints] = useState([{ title: "", expected_result: "" }]);
   const [search, setSearch] = useState("");
   const shown = useMemo(() => (emps.data ?? []).filter((e) => e.full_name.toLowerCase().includes(search.toLowerCase())), [emps.data, search]);
@@ -79,7 +85,11 @@ function CreateProject({ onDone }: { onDone: () => void }) {
       body: {
         name: f.name, description: f.description || null, expected_result: f.expected_result || null,
         assignee_id: assignee ? Number(assignee) : null,
-        head_employee_id: f.head ? Number(f.head) : null, qa_employee_id: f.qa ? Number(f.qa) : null, member_ids: team,
+        head_employee_id: f.head ? Number(f.head) : null,
+        sub_head_employee_id: f.sub_head ? Number(f.sub_head) : null,
+        qa_employee_id: selectedQAs[0] ?? null,
+        qa_employee_ids: selectedQAs,
+        member_ids: team,
         starts_on: f.starts_on || null, ends_on: f.ends_on || null,
         points: points.filter((p) => p.title.trim().length >= 2).map((p) => ({ title: p.title.trim(), expected_result: p.expected_result.trim() || null })),
       },
@@ -89,6 +99,7 @@ function CreateProject({ onDone }: { onDone: () => void }) {
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = (e: FormEvent) => { e.preventDefault(); create.mutate(); };
   const toggle = (id: number) => setTeam((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+  const toggleQA = (id: number) => setSelectedQAs((qas) => (qas.includes(id) ? qas.filter((x) => x !== id) : [...qas, id]));
   return (
     <Card className="mb-6 p-5">
       <form onSubmit={submit} className="grid gap-5 lg:grid-cols-2">
@@ -102,22 +113,36 @@ function CreateProject({ onDone }: { onDone: () => void }) {
               {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
             </Select>
           </Field>
-          <Field label="Project head (optional)">
-            <Select value={f.head} onChange={set("head")}>
-              <option value="">Fallback to department head (or no head if none set)</option>
-              {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
-            </Select>
-          </Field>
-          <Field label="QA tester (optional, for development projects)">
-            <Select value={f.qa} onChange={set("qa")}>
-              <option value="">No QA</option>
-              {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
-            </Select>
-          </Field>
-          <p className="-mt-2 text-xs text-slate-500">If no head is selected, it falls back to the department head of the assigned employee or team members automatically.</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Start date (optional)"><Input type="date" value={f.starts_on} onChange={set("starts_on")} /></Field>
-            <Field label="Project deadline (required)"><Input required type="date" min={f.starts_on || new Date().toISOString().slice(0, 10)} value={f.ends_on} onChange={set("ends_on")} /></Field>
+            <Field label="Project head (optional)">
+              <Select value={f.head} onChange={set("head")}>
+                <option value="">Fallback to department head</option>
+                {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
+              </Select>
+            </Field>
+            <Field label="Project sub-head (optional)">
+              <Select value={f.sub_head} onChange={set("sub_head")}>
+                <option value="">Fallback to department sub-head</option>
+                {emps.data?.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-medium text-slate-700">Assigned QA members ({selectedQAs.length} selected, optional)</div>
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-hairline p-1">
+              {emps.data?.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-slate-50">
+                  <input type="checkbox" checked={selectedQAs.includes(e.id)} onChange={() => toggleQA(e.id)} />
+                  <span>{e.full_name} <span className="text-xs text-slate-400">· {e.job_title}</span></span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Multiple QA members can be assigned and share one unified testing status.</p>
+          </div>
+          <p className="-mt-2 text-xs text-slate-500">If neither head nor sub-head is selected, it falls back to the employee's department head and sub-head.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Start date"><Input type="date" value={f.starts_on} onChange={set("starts_on")} /></Field>
+            <Field label="Project deadline (required)"><Input required type="date" min={f.starts_on || today} value={f.ends_on} onChange={set("ends_on")} /></Field>
           </div>
         </div>
         <div className="space-y-4">

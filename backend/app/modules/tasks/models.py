@@ -31,6 +31,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), default=1)
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(150))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -44,11 +45,25 @@ class Project(Base):
     expected_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     head_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
-    qa_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)  # ADR 006: QA for development projects
+    sub_head_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    qa_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)  # Primary QA / backwards-compatibility
+    head_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    head_reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    head_review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress_pct: Mapped[int] = mapped_column(SmallInteger, default=0)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProjectQAMember(Base):
+    """Multiple QA members assigned to a project."""
+
+    __tablename__ = "project_qa_members"
+
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), primary_key=True)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
 
 
 class ProjectMember(Base):
@@ -116,6 +131,7 @@ class Task(Base):
     )
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), default=1)
     task_no: Mapped[str] = mapped_column(String(40), unique=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text)
@@ -151,11 +167,22 @@ class Task(Base):
     review_stage: Mapped[str | None] = mapped_column(String(12), nullable=True)
     # ADR 006: optional per-task head and QA (else the project's). No head/QA/project = one person's own work, no chain.
     head_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    sub_head_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     qa_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     status_before_block: Mapped[str | None] = mapped_column(String(20), nullable=True)  # restored when the last blocker clears
     version: Mapped[int] = mapped_column(Integer, default=1)  # optimistic lock
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow, onupdate=clock.utcnow)
+
+
+class TaskQAMember(Base):
+    """Multiple QA members assigned to a task."""
+
+    __tablename__ = "task_qa_members"
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), primary_key=True)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=clock.utcnow)
 
 
 class TaskAssignment(Base):

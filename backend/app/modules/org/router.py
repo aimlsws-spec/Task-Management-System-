@@ -26,10 +26,12 @@ class DepartmentIn(Strict):
     name: str = Field(min_length=2, max_length=100)
     code: str = Field(min_length=2, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     parent_id: int | None = None
+    company_id: int | None = None
 
 
 class DepartmentPatch(Strict):
     name: str | None = Field(None, min_length=2, max_length=100)
+    company_id: int | None = None
     is_active: bool | None = None
     self_service: bool | None = None  # selectable by new employees at sign-up
 
@@ -39,6 +41,10 @@ class HeadIn(Strict):
     regroup_members: bool = False  # move the department's members under this head
 
 
+class SubHeadIn(Strict):
+    sub_head_employee_id: int | None
+
+
 class OnboardingIn(Strict):
     department_id: int
     designation: str = Field(min_length=2, max_length=100)
@@ -46,19 +52,24 @@ class OnboardingIn(Strict):
 
 def _dept(d: Department) -> dict:
     return {"id": d.id, "name": d.name, "code": d.code, "parent_id": d.parent_id,
-            "head_employee_id": d.head_employee_id, "qa_employee_id": d.qa_employee_id, "is_active": d.is_active,
+            "company_id": getattr(d, "company_id", 1),
+            "head_employee_id": d.head_employee_id, "sub_head_employee_id": getattr(d, "sub_head_employee_id", None),
+            "qa_employee_id": d.qa_employee_id, "is_active": d.is_active,
             "is_system": d.is_system, "self_service": d.self_service}  # fmt: skip
 
 
 @router.get("/departments")
-def list_departments(p: Principal = Depends(get_principal)):
+def list_departments(company_id: int | None = None, p: Principal = Depends(get_principal)):
     # Department names are not sensitive and every user needs them for pickers/filters.
-    return [_dept(d) for d in p.db.scalars(select(Department).order_by(Department.name))]
+    q = select(Department).order_by(Department.name)
+    if company_id is not None:
+        q = q.where(Department.company_id == company_id)
+    return [_dept(d) for d in p.db.scalars(q)]
 
 
 @router.post("/departments", status_code=201)
 def create_department(body: DepartmentIn, request: Request, p: Principal = Depends(require("department.manage"))):
-    return _dept(service.create_department(p.db, p, body.name, body.code, body.parent_id, request))
+    return _dept(service.create_department(p.db, p, body.name, body.code, body.parent_id, request, company_id=body.company_id or 1))
 
 
 @router.patch("/departments/{dept_id}")
@@ -77,6 +88,13 @@ def set_head(dept_id: int, body: HeadIn, request: Request, p: Principal = Depend
     d = _or_404(p.db.get(Department, dept_id), "Department")
     moved = service.set_department_head(p.db, p, d, body.head_employee_id, request, regroup=body.regroup_members)
     return {**_dept(d), "members_moved": moved}
+
+
+@router.put("/departments/{dept_id}/subhead")
+def set_subhead(dept_id: int, body: SubHeadIn, request: Request, p: Principal = Depends(require("department.manage"))):
+    d = _or_404(p.db.get(Department, dept_id), "Department")
+    service.set_department_sub_head(p.db, p, d, body.sub_head_employee_id, request)
+    return _dept(d)
 
 
 class QaIn(Strict):
@@ -194,16 +212,17 @@ def reactivate(emp_id: int, request: Request, p: Principal = Depends(require("em
 class RoleInviteIn(Strict):
     email: EmailStr
     role_code: str = Field(min_length=2, max_length=50)
+    company_id: int | None = None
 
 
 @router.get("/role-invites")
 def list_role_invites(p: Principal = Depends(require("employee.manage"))):
-    return invites.list_invites(p.db)
+    return invites.list_invites(p.db, p)
 
 
 @router.post("/role-invites", status_code=201)
 def create_role_invite(body: RoleInviteIn, request: Request, p: Principal = Depends(require("employee.manage"))):
-    return invites.invite_dict(p.db, invites.create_invite(p.db, p, body.email, body.role_code, request))
+    return invites.invite_dict(p.db, invites.create_invite(p.db, p, body.email, body.role_code, request, company_id=body.company_id))
 
 
 @router.post("/role-invites/{invite_id}/resend")
@@ -223,8 +242,14 @@ class ManagerIn(Strict):
 
 
 @router.get("/hierarchy/tree")
-def tree(p: Principal = Depends(require("employee.view"))):
-    return service.hierarchy_tree(p.db, p.scope_employee_ids("employee.view"))
+def tree(company_id: int | None = None, p: Principal = Depends(require("employee.view"))):
+    cids = p.company_ids()
+    if cids is not None:
+        if company_id is not None and company_id not in cids:
+            return []
+        if company_id is None and len(cids) == 1:
+            company_id = next(iter(cids))
+    return service.hierarchy_tree(p.db, p.scope_employee_ids("employee.view"), company_id=company_id)
 
 
 @router.get("/hierarchy/relationships")

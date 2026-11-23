@@ -19,11 +19,13 @@ export function NewTask() {
   const nav = useNavigate();
   const { me } = useAuth();
   const [sp] = useSearchParams();
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [assignee, setAssignee] = useState<number | null>(sp.get("assignee") ? Number(sp.get("assignee")) : null);
   const [search, setSearch] = useState("");
+  const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
   const [f, setF] = useState({
-    title: "", description: "", instructions: "", priority: "medium", due_date: "", start_date: "",
-    project_id: "", category_id: "", type_id: "", head: "", qa: "",
+    title: "", description: "", instructions: "", priority: "medium", due_date: "", start_date: today,
+    project_id: "", category_id: "", type_id: "", head: "", sub_head: "",
   });
   const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload") });
   const meta = useQuery({ queryKey: ["task-meta"], queryFn: () => api<Meta>("/task-meta") });
@@ -45,22 +47,28 @@ export function NewTask() {
     [people.data, search],
   );
 
+  const toggleQA = (id: number) => {
+    setSelectedQAs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const create = useMutation({
     mutationFn: () =>
       api<{ task: Task; warnings: string[] }>("/tasks", {
         body: {
           title: f.title, description: f.description, instructions: f.instructions || null, assignee_id: assignee,
-          priority: f.priority, due_date: f.due_date, start_date: f.start_date || null,
+          priority: f.priority, due_date: f.due_date, start_date: f.start_date || today,
           project_id: f.project_id ? Number(f.project_id) : null,
           category_id: f.category_id ? Number(f.category_id) : null, type_id: f.type_id ? Number(f.type_id) : null,
-          head_employee_id: f.head ? Number(f.head) : null, qa_employee_id: f.qa ? Number(f.qa) : null,
+          head_employee_id: f.head ? Number(f.head) : null,
+          sub_head_employee_id: f.sub_head ? Number(f.sub_head) : null,
+          qa_employee_id: selectedQAs[0] ?? null,
+          qa_employee_ids: selectedQAs,
         },
       }),
     onSuccess: (r) => nav(`/tasks/${r.task.id}`, { state: { warnings: r.warnings, created: true } }),
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = (e: FormEvent) => { e.preventDefault(); if (assignee) create.mutate(); };
-  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <>
@@ -132,8 +140,8 @@ export function NewTask() {
                   {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
                 </Select>
               </Field>
-              <Field label="Deadline date"><Input required type="date" min={today} value={f.due_date} onChange={set("due_date")} /></Field>
-              <Field label="Start date (optional)"><Input type="date" min={today} value={f.start_date} onChange={set("start_date")} /></Field>
+              <Field label="Deadline date"><Input required type="date" value={f.due_date} onChange={set("due_date")} /></Field>
+              <Field label="Start date (defaults to today, editable)"><Input type="date" value={f.start_date} onChange={set("start_date")} /></Field>
               <Field label="Project (optional)">
                 <Select value={f.project_id} onChange={set("project_id")}><option value="">None</option>{meta.data?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
               </Field>
@@ -144,12 +152,35 @@ export function NewTask() {
                 <Select value={f.type_id} onChange={set("type_id")}><option value="">None</option>{meta.data?.types.map((t) => <option key={t.id} value={t.id}>{t.name}{t.requires_review ? " (needs review)" : ""}</option>)}</Select>
               </Field>
               <Field label="Head (optional)">
-                <Select value={f.head} onChange={set("head")}><option value="">No head: this task is only for the person above</option>{loopPeople.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}</Select>
+                <Select value={f.head} onChange={set("head")}>
+                  <option value="">No explicit head (fallback to department head)</option>
+                  {loopPeople.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
+                </Select>
               </Field>
-              <Field label="QA tester (optional, for development work)">
-                <Select value={f.qa} onChange={set("qa")}><option value="">No QA</option>{loopPeople.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}</Select>
+              <Field label="SubHead (optional)">
+                <Select value={f.sub_head} onChange={set("sub_head")}>
+                  <option value="">No explicit sub-head (fallback to department sub-head)</option>
+                  {loopPeople.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</option>)}
+                </Select>
               </Field>
-              <p className="-mt-2 text-xs text-slate-500 sm:col-span-2">When the person finishes: the QA tests it first (bugs go back to them to fix), then the head approves, then the CEO or Owner completes it. Leave both empty and the task is just that one person&apos;s work. If the project has a head or QA, they apply automatically. Everyone involved gets every comment by email.</p>
+              <div className="sm:col-span-2">
+                <Field label="QA Testers (optional, multiple QA members can be selected)">
+                  <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
+                    {loopPeople.map((e) => (
+                      <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 hover:bg-slate-50 p-1 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedQAs.includes(e.id)}
+                          onChange={() => toggleQA(e.id)}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>{e.full_name}{e.job_title ? ` · ${e.job_title}` : ""}</span>
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+              <p className="-mt-2 text-xs text-slate-500 sm:col-span-2">When the assignee finishes: multiple QA members share one testing stage (any QA member can test and sign off or report defects), then Head or SubHead approves, then Owner or CEO completes it. If neither Head nor SubHead is selected, fallback uses department leadership; if department has neither, it is a specific employee task.</p>
               <div className="sm:col-span-2 flex items-center gap-3 border-t border-slate-100 pt-4">
                 <Button type="submit" disabled={!assignee || create.isPending}>{create.isPending ? "Assigning…" : chosen ? `Assign to ${chosen.full_name}` : "Choose a person first"}</Button>
                 <Badge>Assigned by you</Badge>

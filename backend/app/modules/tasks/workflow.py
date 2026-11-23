@@ -275,8 +275,8 @@ def detail_extras(db: Session, t: Task) -> dict:
 
 
 def can_take_ownership(db: Session, p: Principal, t: Task) -> bool:
-    """A Department Head, for an open task held by someone else in their own department."""
-    if "department_head" not in p.roles or p.employee is None or t.assignee_id == p.employee.id:
+    """A Department Head or SubHead, for an open task held by someone else in their own department."""
+    if not (set(p.roles) & {"department_head", "sub_head"}) or p.employee is None or t.assignee_id == p.employee.id:
         return False
     if t.status in TERMINAL or not p.can_see("task.view", t.assignee_id):
         return False
@@ -285,7 +285,7 @@ def can_take_ownership(db: Session, p: Principal, t: Task) -> bool:
 
 def take_ownership(db: Session, p: Principal, t: Task, note: str | None, request) -> TaskOwnership:
     if not can_take_ownership(db, p, t):
-        raise AppError("OWNERSHIP_NOT_ALLOWED", "Only the Department Head of the person holding an open task can take ownership of it, once", 409)
+        raise AppError("OWNERSHIP_NOT_ALLOWED", "Only the Department Head or SubHead of the person holding an open task can take ownership of it, once", 409)
     row = TaskOwnership(task_id=t.id, employee_id=p.employee.id, user_id=p.user.id, note=(note or "").strip() or None)
     db.add(row)
     db.flush()

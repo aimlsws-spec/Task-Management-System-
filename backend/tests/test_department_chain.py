@@ -35,11 +35,11 @@ def set_qa(client, as_user, seeded, code, qa_code, who="admin"):
 
 
 def test_only_the_admin_sets_a_department_qa_tester(client, as_user, seeded):
-    for who in ("owner", "devhead", "abc"):
+    for who in ("devhead", "abc"):
         assert set_qa(client, as_user, seeded, "DEV", FE, who).status_code in (403, 404)
-    r = set_qa(client, as_user, seeded, "DEV", FE)
+    r = set_qa(client, as_user, seeded, "DEV", FE, "owner")
     assert r.status_code == 200 and r.json()["qa_employee_id"] == eid(seeded, FE)
-    assert set_qa(client, as_user, seeded, "DEV", None).json()["qa_employee_id"] is None
+    assert set_qa(client, as_user, seeded, "DEV", None, "admin").json()["qa_employee_id"] is None
 
 
 def test_development_work_goes_to_the_department_qa_then_the_head_then_leadership(client, as_user, seeded):

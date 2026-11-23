@@ -11,7 +11,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission
 log = logging.getLogger("tms.rbac")
 
 # Bump when the default matrix changes; system roles are then reset to the new defaults once.
-SEED_VERSION = 5  # v5: Owner has full system access and all admin capabilities (rank 120)
+SEED_VERSION = 7  # v7: sub_head role and CEO company org management permissions
 
 # code -> (category, description)
 PERMISSIONS: dict[str, tuple[str, str]] = {
@@ -46,10 +46,9 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "notification.rules.manage": ("admin", "Manage notification and reminder rules"),
 }
 
-# Organization setup belongs to the Admin panel only (not Owner / CEO / Manager).
+# System administration settings belong to Admin and Owner (Owner has all).
 ADMIN_ONLY = {
-    "employee.manage", "department.manage", "hierarchy.manage", "role.manage",
-    "settings.manage", "notification.rules.manage",
+    "role.manage", "settings.manage", "notification.rules.manage",
 }  # fmt: skip
 
 # roles: code -> (name, rank, description)
@@ -59,6 +58,7 @@ ROLES: dict[str, tuple[str, int, str]] = {
     "ceo": ("CEO", 90, "Senior management, organization-wide visibility"),
     "manager": ("Manager", 70, "Supervises employees and department heads"),
     "department_head": ("Department Head", 50, "Runs a department"),
+    "sub_head": ("Department SubHead", 40, "Assists department head, supervises department work"),
     "employee": ("Employee", 10, "Works on assigned tasks"),
 }
 
@@ -79,9 +79,13 @@ def _matrix() -> dict[str, dict[str, str]]:
     org = "organization"
     work = {c: org for c in PERMISSIONS if c not in ADMIN_ONLY and c not in ADMIN_ONLY_VIEW}  # all work, no org setup, no audit log
     owner = {c: org for c in PERMISSIONS}  # Owner holds ALL permissions across the entire system
-    admin = {c: org for c in ADMIN_ONLY} | {"employee.view": org, "audit.view": org, "dashboard.view": "self"}
+    admin = {c: org for c in ADMIN_ONLY} | {
+        "employee.view": org, "employee.manage": org, "department.manage": org, "hierarchy.manage": org,
+        "audit.view": org, "dashboard.view": "self"
+    }
     manager = {c: "team" for c in _MGMT_TASK}
     head = {c: "department" for c in _MGMT_TASK}
+    sub_head = {c: "department" for c in _MGMT_TASK}
     employee = {
         c: "self"
         for c in (
@@ -89,7 +93,7 @@ def _matrix() -> dict[str, dict[str, str]]:
             "comment.create", "report.view", "report.export", "dashboard.view", "employee.view",
         )
     }  # fmt: skip
-    return {"admin": admin, "owner": owner, "ceo": dict(work), "manager": manager, "department_head": head, "employee": employee}
+    return {"admin": admin, "owner": owner, "ceo": dict(work), "manager": manager, "department_head": head, "sub_head": sub_head, "employee": employee}
 
 
 def seed_rbac(db: Session) -> None:

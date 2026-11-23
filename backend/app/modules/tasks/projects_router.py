@@ -31,9 +31,12 @@ class ProjectIn(Strict):
     code: str | None = Field(None, min_length=2, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     description: str | None = Field(None, max_length=5000)
     expected_result: str | None = Field(None, max_length=5000)
+    company_id: int | None = None
     assignee_id: int | None = None
     head_employee_id: int | None = None
+    sub_head_employee_id: int | None = None
     qa_employee_id: int | None = None
+    qa_employee_ids: list[int] | None = None
     member_ids: list[int] = Field(default_factory=list, max_length=500)
     points: list[PointIn] = Field(default_factory=list, max_length=200)
     department_id: int | None = None
@@ -46,9 +49,12 @@ class ProjectPatch(Strict):
     description: str | None = Field(None, max_length=5000)
     expected_result: str | None = Field(None, max_length=5000)
     status: Literal["active", "on_hold", "archived"] | None = None
+    company_id: int | None = None
     assignee_id: int | None = None
     head_employee_id: int | None = None
+    sub_head_employee_id: int | None = None
     qa_employee_id: int | None = None
+    qa_employee_ids: list[int] | None = None
     progress_pct: int | None = Field(None, ge=0, le=100)
     member_ids: list[int] | None = Field(None, max_length=500)
     starts_on: date | None = None
@@ -65,7 +71,9 @@ class AssignPointIn(Strict):
     category_id: int | None = None
     type_id: int | None = None
     head_employee_id: int | None = None
+    sub_head_employee_id: int | None = None
     qa_employee_id: int | None = None
+    qa_employee_ids: list[int] | None = None
 
 
 class CompleteIn(Strict):
@@ -73,8 +81,8 @@ class CompleteIn(Strict):
 
 
 @router.get("/projects")
-def list_projects(p: Principal = Depends(get_principal)):
-    return projects.list_projects(p.db, p)
+def list_projects(company_id: int | None = None, p: Principal = Depends(get_principal)):
+    return projects.list_projects(p.db, p, company_id=company_id)
 
 
 @router.post("/projects", status_code=201)
@@ -141,7 +149,7 @@ def assign_point(project_id: int, point_id: int, body: AssignPointIn, request: R
 
 
 @router.post("/projects/{project_id}/complete")
-def complete_project(project_id: int, body: CompleteIn, request: Request, p: Principal = Depends(require("project.manage"))):
+def complete_project(project_id: int, body: CompleteIn, request: Request, p: Principal = Depends(get_principal)):
     pr = projects.complete_project(p.db, p, project_id, body.note, request)
     return projects.detail(p.db, p, pr)
 

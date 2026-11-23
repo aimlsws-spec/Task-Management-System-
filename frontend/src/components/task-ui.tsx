@@ -3,11 +3,11 @@ import { Badge } from "@/components/ui";
 export type Person = { id: number; full_name: string; job_title: string | null; department_id: number; employee_code: string };
 export type Task = {
   id: number; task_no: string; title: string; status: string; priority: string; assignee: Person; assigned_by: Person;
-  department_id: number; project_id: number | null; category_id: number | null; type_id: number | null;
+  department_id: number; company_id?: number; project_id: number | null; category_id: number | null; type_id: number | null;
   assigned_at: string; start_date: string | null; original_due_at: string; due_at: string; extension_count: number;
   estimated_hours: number; progress_pct: number; is_overdue: boolean; requires_review: boolean; version: number;
   acknowledged_at: string | null; completed_at: string | null; review_stage?: "qa" | "head" | "leadership" | null;
-  head?: Person | null; qa?: Person | null;
+  head?: Person | null; sub_head?: Person | null; qa?: Person | null; qa_members?: Person[];
   // detail only
   description?: string; instructions?: string | null; deadline_version?: number; cancel_reason?: string | null;
   project?: string | null; category?: string | null; type?: string | null; allowed_actions?: string[];

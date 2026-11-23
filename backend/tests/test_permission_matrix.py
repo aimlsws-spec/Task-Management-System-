@@ -12,6 +12,7 @@ API = "/api/v1"
 # one demo user per role
 ALL = {"admin", "owner", "ceo", "manager", "devhead", "abc"}
 ADMIN = {"admin", "owner"}  # Owner has full system access and all Admin capabilities
+ADMIN_OR_CEO = {"admin", "owner", "ceo"}  # CEO can manage employees, depts, hierarchy, invites in their company
 AUDIT = {"admin", "owner"}  # Owner can view audit log
 WORK = {"owner", "ceo", "manager", "devhead", "abc"}  # task.view: everyone except the Admin
 ASSIGNERS = {"owner", "ceo", "manager", "devhead"}  # task.create + task.assign (employees and Admin cannot)
@@ -21,21 +22,21 @@ MATRIX = [
     ("GET", "/auth/me", None, ALL),
     ("GET", "/employees", None, ALL),  # scope-filtered, not permission-gated
     ("GET", "/employees/999999", None, ALL),  # allowed roles see 404 (also what out-of-scope looks like)
-    ("POST", "/employees", {"bad": 1}, ADMIN),
-    ("PATCH", "/employees/999999", {"phone": "1"}, ADMIN),
-    ("POST", "/employees/999999/deactivate", None, ADMIN),
-    ("POST", "/employees/999999/reactivate", None, ADMIN),
+    ("POST", "/employees", {"bad": 1}, ADMIN_OR_CEO),
+    ("PATCH", "/employees/999999", {"phone": "1"}, ADMIN_OR_CEO),
+    ("POST", "/employees/999999/deactivate", None, ADMIN_OR_CEO),
+    ("POST", "/employees/999999/reactivate", None, ADMIN_OR_CEO),
     ("GET", "/departments", None, ALL),
-    ("POST", "/departments", {"bad": 1}, ADMIN),
-    ("PATCH", "/departments/999999", {"is_active": True}, ADMIN),
-    ("DELETE", "/departments/999999", None, ADMIN),
-    ("PUT", "/departments/999999/head", {"head_employee_id": None}, ADMIN),
+    ("POST", "/departments", {"bad": 1}, ADMIN_OR_CEO),
+    ("PATCH", "/departments/999999", {"is_active": True}, ADMIN_OR_CEO),
+    ("DELETE", "/departments/999999", None, ADMIN_OR_CEO),
+    ("PUT", "/departments/999999/head", {"head_employee_id": None}, ADMIN_OR_CEO),
     ("GET", "/hierarchy/tree", None, ALL),
-    ("POST", "/hierarchy/relationships", {"employee_id": 999999, "reports_to_id": None}, ADMIN),
-    ("GET", "/role-invites", None, ADMIN),
-    ("POST", "/role-invites", {"bad": 1}, ADMIN),
-    ("DELETE", "/role-invites/999999", None, ADMIN),
-    ("POST", "/role-invites/999999/resend", None, ADMIN),
+    ("POST", "/hierarchy/relationships", {"employee_id": 999999, "reports_to_id": None}, ADMIN_OR_CEO),
+    ("GET", "/role-invites", None, ADMIN_OR_CEO),
+    ("POST", "/role-invites", {"bad": 1}, ADMIN_OR_CEO),
+    ("DELETE", "/role-invites/999999", None, ADMIN_OR_CEO),
+    ("POST", "/role-invites/999999/resend", None, ADMIN_OR_CEO),
     ("GET", "/roles", None, ADMIN),
     ("GET", "/permissions", None, ADMIN),
     ("PUT", "/roles/999999/permissions", {"grants": []}, ADMIN),
@@ -68,7 +69,7 @@ MATRIX = [
     ("PATCH", "/projects/999999/points/1", {"title": "abc"}, ASSIGNERS),
     ("DELETE", "/projects/999999/points/1", None, ASSIGNERS),
     ("POST", "/projects/999999/points/1/assign", {"assignee_id": 1, "priority": "low", "due_date": "2030-01-01", "estimated_hours": 1}, ASSIGNERS),
-    ("POST", "/projects/999999/complete", {}, {"owner", "ceo"}),
+    ("POST", "/projects/999999/complete", {}, {"owner", "ceo", "devhead", "manager"}),
     # --- Phase 4: the employee's work, finishing, review, time ---
     ("POST", "/tasks/999999/start", None, WORK),
     ("POST", "/tasks/999999/pause", None, WORK),
@@ -192,8 +193,9 @@ def test_admin_holds_all_org_setup_and_no_task_authority(client, as_user):
 def test_org_setup_is_held_by_admin_and_owner(client, as_user):
     assert ORG_SETUP <= set(perms(client, as_user, "admin"))
     assert ORG_SETUP <= set(perms(client, as_user, "owner"))
+    admin_only = {"role.manage", "settings.manage", "notification.rules.manage"}
     for who in ("ceo", "manager", "devhead", "abc"):
-        assert not ORG_SETUP & set(perms(client, as_user, who)), who
+        assert not admin_only & set(perms(client, as_user, who)), who
 
 
 def test_owner_and_ceo_keep_full_work_authority(client, as_user):

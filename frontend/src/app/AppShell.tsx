@@ -27,6 +27,7 @@ function useNav() {
     if (can("task.view")) {
       admin.push({ to: "/admin", label: "Admin Panel", icon: LayoutDashboard });
     }
+    admin.push({ to: "/companies", label: "Companies", icon: Building2 });
     admin.push({ to: "/employees", label: "Employees", icon: Users });
   }
   if (can("employee.manage")) admin.push({ to: "/role-emails", label: "Role emails", icon: MailCheck });

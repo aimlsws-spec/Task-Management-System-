@@ -185,11 +185,13 @@ def _team_info(db, e) -> dict:
 
     dept = db.get(Department, e.department_id)
     head = db.get(Employee, dept.head_employee_id) if dept is not None and dept.head_employee_id else None
+    sub_head = db.get(Employee, getattr(dept, "sub_head_employee_id", None)) if dept is not None and getattr(dept, "sub_head_employee_id", None) else None
     boss = db.get(Employee, current_manager_id(db, e.id)) if current_manager_id(db, e.id) else None
     qa = db.get(Employee, dept.qa_employee_id) if dept is not None and dept.qa_employee_id else None
     return {
         "department": dept.name if dept else None,
         "head": {"id": head.id, "full_name": head.full_name} if head and head.id != e.id else None,
+        "sub_head": {"id": sub_head.id, "full_name": sub_head.full_name} if sub_head and sub_head.id != e.id else None,
         "reports_to": {"id": boss.id, "full_name": boss.full_name} if boss else None,
         "qa": {"id": qa.id, "full_name": qa.full_name} if qa and qa.id != e.id else None,
     }
@@ -213,6 +215,7 @@ def me(p: Principal = Depends(get_principal)):
             "full_name": e.full_name,
             "job_title": e.job_title,
             "department_id": e.department_id,
+            "company_id": getattr(e, "company_id", 1),
             "status": e.status,
             **_team_info(p.db, e),
         },

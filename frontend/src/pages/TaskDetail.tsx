@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { ACTION_LABEL, fmtDateTime, fmtDay, fmtDuration, OverdueBadge, PriorityChip, statusLabel, StatusBadge, type Task, type Workload } from "@/components/task-ui";
@@ -113,10 +113,23 @@ export function TaskDetail() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusBadge status={t.status} /><PriorityChip priority={t.priority} />{t.is_overdue && <OverdueBadge />}
         {t.requires_review && !t.review_stage && <Badge tone="purple">Review required</Badge>}
-        {t.status === "under_review" && t.review_stage === "qa" && <Badge tone="purple">Waiting for QA testing{t.qa ? `: ${t.qa.full_name}` : ""}</Badge>}
-        {t.status === "under_review" && t.review_stage === "head" && <Badge tone="purple">Waiting for the head{t.head ? `: ${t.head.full_name}` : ""}</Badge>}
+        {t.status === "under_review" && t.review_stage === "qa" && (
+          <Badge tone="purple">
+            Waiting for QA testing: {t.qa_members?.length ? t.qa_members.map((q) => q.full_name).join(", ") : t.qa?.full_name ?? "QA"}
+          </Badge>
+        )}
+        {t.status === "under_review" && t.review_stage === "head" && (
+          <Badge tone="purple">
+            Waiting for Head / SubHead review: {[t.head?.full_name, t.sub_head?.full_name].filter(Boolean).join(" / ") || "Head"}
+          </Badge>
+        )}
         {t.head && !t.review_stage && <Badge tone="grey">Head: {t.head.full_name}</Badge>}
-        {t.qa && !t.review_stage && <Badge tone="grey">QA: {t.qa.full_name}</Badge>}
+        {t.sub_head && !t.review_stage && <Badge tone="grey">SubHead: {t.sub_head.full_name}</Badge>}
+        {t.qa_members && t.qa_members.length > 0 && !t.review_stage ? (
+          <Badge tone="grey">QA: {t.qa_members.map((q) => q.full_name).join(", ")}</Badge>
+        ) : t.qa && !t.review_stage ? (
+          <Badge tone="grey">QA: {t.qa.full_name}</Badge>
+        ) : null}
         {t.status === "under_review" && t.review_stage === "leadership" && <Badge tone="purple">Waiting for CEO / Owner review</Badge>}
         {t.project_id && <Link to={`/projects/${t.project_id}`} className="text-xs font-medium text-indigo-600 hover:underline">Project: {t.project ?? "open"}</Link>}
         {t.verified_at && <Badge tone="green">Verified</Badge>}
@@ -233,11 +246,71 @@ export function TaskDetail() {
 
         <div className="space-y-5">
           <Card className="p-4 text-sm">
-            <h2 className="text-sm font-semibold">People</h2>
+            <h2 className="text-sm font-semibold">People & Assignment</h2>
             <dl className="mt-3 space-y-3">
-              <div><dt className="text-xs text-slate-500">Assigned to</dt><dd className="font-medium">{t.assignee.full_name}</dd><dd className="text-xs text-slate-500">{t.assignee.job_title}</dd></div>
-              <div><dt className="text-xs text-slate-500">Assigned by</dt><dd className="font-medium">{t.assigned_by.full_name}</dd><dd className="text-xs text-slate-500">{t.assigned_by.job_title}</dd></div>
-              {t.acknowledged_at && <div><dt className="text-xs text-slate-500">Acknowledged</dt><dd>{fmtDateTime(t.acknowledged_at, tz)}</dd></div>}
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Created By</dt>
+                <dd className="font-medium text-slate-900">{t.assigned_by.full_name}</dd>
+                <dd className="text-xs text-slate-500">{t.assigned_by.job_title ?? "—"}</dd>
+              </div>
+
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Assigned To</dt>
+                <dd className="font-medium text-slate-900">{t.assignee.full_name}</dd>
+                <dd className="text-xs text-slate-500">{t.assignee.job_title ?? "—"}</dd>
+              </div>
+
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Responsible Head</dt>
+                {t.head ? (
+                  <dd className="font-medium text-slate-900">
+                    {t.head.full_name} <span className="text-xs font-normal text-slate-500">(Head{t.head.job_title ? ` · ${t.head.job_title}` : ""})</span>
+                  </dd>
+                ) : null}
+                {t.sub_head ? (
+                  <dd className="font-medium text-slate-900">
+                    {t.sub_head.full_name} <span className="text-xs font-normal text-slate-500">(SubHead{t.sub_head.job_title ? ` · ${t.sub_head.job_title}` : ""})</span>
+                  </dd>
+                ) : null}
+                {!t.head && !t.sub_head && (
+                  <dd className="text-slate-500 italic">None (Specific Employee Task)</dd>
+                )}
+              </div>
+
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Assigned QA</dt>
+                {t.qa_members && t.qa_members.length > 0 ? (
+                  <dd className="font-medium text-slate-900">
+                    {t.qa_members.map((q) => q.full_name).join(", ")}
+                  </dd>
+                ) : t.qa ? (
+                  <dd className="font-medium text-slate-900">{t.qa.full_name}</dd>
+                ) : (
+                  <dd className="text-slate-500 italic">No QA assigned</dd>
+                )}
+              </div>
+
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Task Owner</dt>
+                {t.ownership && t.ownership.length > 0 ? (
+                  <div>
+                    <dd className="font-medium text-indigo-700">{t.ownership[t.ownership.length - 1].full_name}</dd>
+                    <dd className="text-xs text-slate-500">Ownership claimed by Department Leadership</dd>
+                  </div>
+                ) : (
+                  <div>
+                    <dd className="font-medium text-slate-900">{t.assignee.full_name}</dd>
+                    <dd className="text-xs text-slate-500">Task Assignee (Default Owner)</dd>
+                  </div>
+                )}
+              </div>
+
+              {t.acknowledged_at && (
+                <div className="border-t border-slate-100 pt-2">
+                  <dt className="text-xs text-slate-500">Acknowledged</dt>
+                  <dd className="text-xs text-slate-700">{fmtDateTime(t.acknowledged_at, tz)}</dd>
+                </div>
+              )}
             </dl>
           </Card>
           {t.deadline && (
@@ -274,16 +347,73 @@ const Buttons = ({ cta, onClose, danger, disabled }: { cta: string; onClose: () 
 );
 
 function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string, unknown>) => void; onClose: () => void }) {
-  const [f, setF] = useState({ title: t.title, description: t.description ?? "", instructions: t.instructions ?? "", head: t.head ? String(t.head.id) : "", qa: t.qa ? String(t.qa.id) : "" });
+  const [f, setF] = useState({
+    title: t.title,
+    description: t.description ?? "",
+    instructions: t.instructions ?? "",
+    head: t.head ? String(t.head.id) : "",
+    sub_head: t.sub_head ? String(t.sub_head.id) : "",
+  });
+  const initialQAs = useMemo(() => {
+    if (t.qa_members && t.qa_members.length > 0) return t.qa_members.map((q) => q.id);
+    if (t.qa) return [t.qa.id];
+    return [];
+  }, [t.qa, t.qa_members]);
+  const [selectedQAs, setSelectedQAs] = useState<number[]>(initialQAs);
   const emps = useEmployees();
+  const toggleQA = (id: number) => {
+    setSelectedQAs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   return (
     <Panel title="Edit task (the deadline is changed separately, with a reason)">
-      <form onSubmit={(e) => { e.preventDefault(); onSave({ title: f.title, description: f.description, instructions: f.instructions || null, head_employee_id: f.head ? Number(f.head) : null, qa_employee_id: f.qa ? Number(f.qa) : null }); }} className="grid gap-3 sm:grid-cols-2">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({
+            title: f.title,
+            description: f.description,
+            instructions: f.instructions || null,
+            head_employee_id: f.head ? Number(f.head) : null,
+            sub_head_employee_id: f.sub_head ? Number(f.sub_head) : null,
+            qa_employee_id: selectedQAs[0] ?? null,
+            qa_employee_ids: selectedQAs,
+          });
+        }}
+        className="grid gap-3 sm:grid-cols-2"
+      >
         <div className="sm:col-span-2"><Field label="Title"><Input required minLength={3} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field></div>
         <div className="sm:col-span-2"><Field label="Description"><textarea required rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={textarea} /></Field></div>
         <div className="sm:col-span-2"><Field label="Instructions"><textarea rows={2} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} className={textarea} /></Field></div>
-        <Field label="Head (optional)"><Select value={f.head} onChange={(e) => setF({ ...f, head: e.target.value })}><option value="">No head</option>{emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select></Field>
-        <Field label="QA tester (optional)"><Select value={f.qa} onChange={(e) => setF({ ...f, qa: e.target.value })}><option value="">No QA</option>{emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}</Select></Field>
+        <Field label="Head (optional)">
+          <Select value={f.head} onChange={(e) => setF({ ...f, head: e.target.value })}>
+            <option value="">No head</option>
+            {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </Select>
+        </Field>
+        <Field label="SubHead (optional)">
+          <Select value={f.sub_head} onChange={(e) => setF({ ...f, sub_head: e.target.value })}>
+            <option value="">No sub-head</option>
+            {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </Select>
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="QA Testers (optional, select multiple)">
+            <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
+              {emps.data?.filter((e) => e.id !== t.assignee.id).map((e) => (
+                <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 hover:bg-slate-50 p-1 rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedQAs.includes(e.id)}
+                    onChange={() => toggleQA(e.id)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>{e.full_name}</span>
+                </label>
+              ))}
+            </div>
+          </Field>
+        </div>
         <Buttons cta="Save" onClose={onClose} />
       </form>
     </Panel>

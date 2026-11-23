@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MailCheck } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useState, useMemo, type FormEvent } from "react";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
-type Invite = { id: number; email: string; role_code: string; role_name: string; claimed: boolean; claimed_at: string | null; created_at: string };
+type Invite = { id: number; email: string; role_code: string; role_name: string; company_id?: number | null; claimed: boolean; claimed_at: string | null; created_at: string };
+type Company = { id: number; name: string; code: string };
 
 // Admin accounts are never created here; department heads are named on the Departments page.
-const ROLES = [
+const ALL_ROLES = [
   { value: "owner", label: "Owner" },
   { value: "ceo", label: "CEO" },
   { value: "manager", label: "Manager" },
@@ -18,13 +20,32 @@ const ROLES = [
 /** Administration > Role emails: register the email of the Owner, CEO, Manager... Whoever signs up with exactly that
  *  email gets the role automatically. Everyone else who signs up is an Employee. */
 export function RoleEmails() {
+  const { me } = useAuth();
+  const isOwner = me?.roles?.includes("owner");
+  const isAdmin = me?.roles?.includes("admin");
+  const isCeo = me?.roles?.includes("ceo") && !isOwner && !isAdmin;
+
+  const allowedRoles = useMemo(() => {
+    if (isCeo) {
+      return ALL_ROLES.filter((r) => ["manager", "department_head", "employee"].includes(r.value));
+    }
+    return ALL_ROLES;
+  }, [isCeo]);
+
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("owner");
+  const [role, setRole] = useState(isCeo ? "employee" : "owner");
+  const [companyId, setCompanyId] = useState<string>("1");
+
+  const companiesQuery = useQuery({
+    queryKey: ["companies"],
+    queryFn: () => api<Company[]>("/companies"),
+  });
+
   const list = useQuery({ queryKey: ["role-invites"], queryFn: () => api<Invite[]>("/role-invites") });
   const refresh = () => { qc.invalidateQueries({ queryKey: ["role-invites"] }); qc.invalidateQueries({ queryKey: ["employees"] }); };
   const add = useMutation({
-    mutationFn: () => api("/role-invites", { body: { email, role_code: role } }),
+    mutationFn: () => api("/role-invites", { body: { email, role_code: role, company_id: Number(companyId) || 1 } }),
     onSuccess: () => { setEmail(""); refresh(); },
   });
   const [resent, setResent] = useState<number | null>(null);
@@ -36,16 +57,23 @@ export function RoleEmails() {
     <>
       <PageHeader
         title="Role emails"
-        subtitle="Register the email of each Owner, CEO or Manager. When that person signs up with exactly this email, they receive the role automatically. Anyone else who signs up becomes an Employee."
+        subtitle="Register the email of each Owner, CEO, Manager or Employee. When that person signs up with exactly this email, they receive the role automatically."
       />
       <Card className="mb-5 p-5">
         <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
           <Field label="Email"><Input type="email" required className="w-72" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
           <Field label="Role">
             <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-48">
-              {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              {allowedRoles.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </Select>
           </Field>
+          {companiesQuery.data && companiesQuery.data.length > 0 && (
+            <Field label="Company">
+              <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="w-48">
+                {companiesQuery.data.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+          )}
           <Button type="submit" disabled={add.isPending}>Register email</Button>
         </form>
         <p className="mt-3 text-xs text-slate-500">

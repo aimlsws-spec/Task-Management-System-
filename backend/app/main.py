@@ -15,6 +15,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.collab.router import router as collab_router
 from app.modules.notifications.router import router as notifications_router
+from app.modules.org.companies_router import router as companies_router
 from app.modules.org.router import router as org_router
 from app.modules.rbac.router import router as rbac_router
 from app.modules.reports.router import router as reports_router
@@ -67,7 +68,7 @@ def create_app() -> FastAPI:
         return response
 
     api = APIRouter(prefix="/api/v1")
-    for r in (auth_router, org_router, rbac_router, workcal_router, audit_router, tasks_router, projects_router, accountability_router, time_router, notifications_router, collab_router, reports_router):
+    for r in (auth_router, org_router, companies_router, rbac_router, workcal_router, audit_router, tasks_router, projects_router, accountability_router, time_router, notifications_router, collab_router, reports_router):
         api.include_router(r)
     app.include_router(api)
 

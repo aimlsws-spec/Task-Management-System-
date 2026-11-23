@@ -87,12 +87,41 @@ class Principal:
                     ids |= set(self.db.scalars(select(Employee.id).where(Employee.department_id.in_(dept_ids))))
             elif scope == "department":
                 from app.modules.org.models import Department
+                from sqlalchemy import or_
 
-                dept_ids = list(self.db.scalars(select(Department.id).where(Department.head_employee_id == me.id)))
+                dept_ids = list(
+                    self.db.scalars(
+                        select(Department.id).where(
+                            or_(
+                                Department.head_employee_id == me.id,
+                                Department.sub_head_employee_id == me.id,
+                                Department.id == me.department_id,
+                            )
+                        )
+                    )
+                )
                 if dept_ids:
                     ids |= set(self.db.scalars(select(Employee.id).where(Employee.department_id.in_(dept_ids))))
         self._cache[key] = ids
         return ids
+
+    def company_ids(self) -> set[int] | None:
+        """None = all companies (Owner, Admin). Set of IDs = authorized companies (CEO, or employee's company)."""
+        if "owner" in self.roles or "admin" in self.roles:
+            return None
+        from app.modules.org.models import CompanyCEO
+        if "ceo" in self.roles:
+            cids = set(self.db.scalars(select(CompanyCEO.company_id).where(CompanyCEO.user_id == self.user.id)))
+            if self.employee and getattr(self.employee, "company_id", None):
+                cids.add(self.employee.company_id)
+            return cids
+        if self.employee and getattr(self.employee, "company_id", None):
+            return {self.employee.company_id}
+        return set()
+
+    def can_access_company(self, company_id: int) -> bool:
+        cids = self.company_ids()
+        return cids is None or company_id in cids
 
     def can_see(self, code: str, employee_id: int) -> bool:
         ids = self.scope_employee_ids(code)
