@@ -30,6 +30,8 @@ class ProjectIn(Strict):
     name: str = Field(min_length=2, max_length=150)
     code: str | None = Field(None, min_length=2, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     description: str | None = Field(None, max_length=5000)
+    special_note: str | None = Field(None, max_length=5000)
+    priority: Literal["critical", "high", "medium", "low"] = "medium"
     expected_result: str | None = Field(None, max_length=5000)
     company_id: int | None = None
     assignee_id: int | None = None
@@ -48,6 +50,8 @@ class ProjectIn(Strict):
 class ProjectPatch(Strict):
     name: str | None = Field(None, min_length=2, max_length=150)
     description: str | None = Field(None, max_length=5000)
+    special_note: str | None = Field(None, max_length=5000)
+    priority: Literal["critical", "high", "medium", "low"] | None = None
     expected_result: str | None = Field(None, max_length=5000)
     status: Literal["active", "on_hold", "archived"] | None = None
     company_id: int | None = None
@@ -66,10 +70,11 @@ class ProjectPatch(Strict):
 class AssignPointIn(Strict):
     assignee_id: int
     priority: Literal["critical", "high", "medium", "low"]
-    due_date: date
+    due_date: date | None = None
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)
     instructions: str | None = Field(None, max_length=20000)
+    special_note: str | None = Field(None, max_length=20000)
     category_id: int | None = None
     type_id: int | None = None
     head_employee_id: int | None = None

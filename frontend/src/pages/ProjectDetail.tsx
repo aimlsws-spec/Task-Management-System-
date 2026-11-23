@@ -83,6 +83,7 @@ export function ProjectDetail() {
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        <PriorityChip priority={d.priority || "medium"} />
         <Badge tone={STATUS_TONE[d.status] ?? "grey"}>{d.status.replace("_", " ")}</Badge>
         {d.ready_for_review && <Badge tone="purple">Ready for review</Badge>}
         {d.counts.awaiting_review > 0 && <Badge tone="purple">{d.counts.awaiting_review} task{d.counts.awaiting_review === 1 ? "" : "s"} awaiting review</Badge>}
@@ -140,6 +141,7 @@ export function ProjectDetail() {
         <Card className="p-5 lg:col-span-2">
           <h2 className="mb-2 text-sm font-semibold text-brand-ink">Expected result</h2>
           <p className="whitespace-pre-wrap text-sm text-slate-700">{d.expected_result || <span className="text-slate-400">Not written yet.</span>}</p>
+          {d.special_note && <><h2 className="mb-1 mt-4 text-sm font-semibold text-brand-ink">Special Note</h2><p className="whitespace-pre-wrap text-sm text-slate-600">{d.special_note}</p></>}
           {d.description && <><h2 className="mb-1 mt-4 text-sm font-semibold text-brand-ink">About</h2><p className="whitespace-pre-wrap text-sm text-slate-600">{d.description}</p></>}
         </Card>
         <TeamCard d={d} onSaved={refresh} />
@@ -449,14 +451,21 @@ function Points({ d, onChanged }: { d: Detail; onChanged: () => void }) {
 
 function AssignForm({ d, pointId, onDone }: { d: Detail; pointId: number; onDone: () => void }) {
   const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload") });
-  const [f, setF] = useState({ assignee: "", priority: "medium", due: "" });
+  const [f, setF] = useState({ assignee: "", priority: "medium", due: "", special_note: "" });
   const headIds = (d.heads ?? []).map((h) => h.id);
   if (d.head) headIds.push(d.head.id);
   if (d.sub_head) headIds.push(d.sub_head.id);
   const allowed = new Set([...d.members.map((m) => m.id), ...headIds]);
   const options = (people.data ?? []).filter((p) => !p.is_me && (allowed.size === 0 || allowed.has(p.employee_id)));
   const assign = useMutation({
-    mutationFn: () => api(`/projects/${d.id}/points/${pointId}/assign`, { body: { assignee_id: Number(f.assignee), priority: f.priority, due_date: f.due } }),
+    mutationFn: () => api(`/projects/${d.id}/points/${pointId}/assign`, {
+      body: {
+        assignee_id: Number(f.assignee),
+        priority: f.priority,
+        due_date: f.due || null,
+        special_note: f.special_note || null,
+      },
+    }),
     onSuccess: onDone,
   });
   const submit = (e: FormEvent) => { e.preventDefault(); assign.mutate(); };
@@ -469,7 +478,10 @@ function AssignForm({ d, pointId, onDone }: { d: Detail; pointId: number; onDone
         </Select>
       </Field>
       <Field label="Priority"><Select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>{["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}</Select></Field>
-      <Field label="Deadline"><Input required type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} /></Field>
+      <Field label="Deadline (optional)"><Input type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} placeholder="Inherits project deadline" /></Field>
+      <div className="sm:col-span-3">
+        <Field label="Special Note (optional)"><Input value={f.special_note} onChange={(e) => setF({ ...f, special_note: e.target.value })} placeholder="Special note or instructions..." /></Field>
+      </div>
       <div className="flex items-center gap-3 sm:col-span-3"><Button type="submit" disabled={assign.isPending}>Assign task</Button><ErrorNote error={assign.error} />{!people.isLoading && options.length === 0 && <span className="text-sm text-slate-500">No one available to assign.</span>}</div>
     </form>
   );

@@ -71,8 +71,8 @@ export function NewTask() {
     mutationFn: () =>
       api<{ task: Task; warnings: string[] }>("/tasks", {
         body: {
-          title: f.title, description: f.description, instructions: f.instructions || null, assignee_id: assignee,
-          priority: f.priority, due_date: f.due_date, start_date: f.start_date || today,
+          title: f.title, description: f.description, instructions: f.instructions || null, special_note: f.instructions || null, assignee_id: assignee,
+          priority: f.priority, due_date: f.due_date || null, start_date: f.start_date || today,
           project_id: f.project_id ? Number(f.project_id) : null,
           category_id: f.category_id ? Number(f.category_id) : null, type_id: f.type_id ? Number(f.type_id) : null,
           head_employee_id: selectedHeads[0] ?? null,
@@ -151,13 +151,13 @@ export function NewTask() {
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2"><Field label="Task title"><Input required minLength={3} maxLength={200} value={f.title} onChange={set("title")} placeholder="e.g. Develop AI Chatbot API" /></Field></div>
               <div className="sm:col-span-2"><Field label="Description"><textarea required minLength={3} rows={4} value={f.description} onChange={set("description")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" /></Field></div>
-              <div className="sm:col-span-2"><Field label="Additional instructions (optional)"><textarea rows={2} value={f.instructions} onChange={set("instructions")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" /></Field></div>
+              <div className="sm:col-span-2"><Field label="Special Note (optional)"><textarea rows={2} value={f.instructions} onChange={set("instructions")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" placeholder="Special notes or instructions..." /></Field></div>
               <Field label="Priority">
                 <Select value={f.priority} onChange={set("priority")}>
                   {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
                 </Select>
               </Field>
-              <Field label="Deadline date"><Input required type="date" value={f.due_date} onChange={set("due_date")} /></Field>
+              <Field label={f.project_id ? "Deadline date (optional — inherits project deadline)" : "Deadline date"}><Input required={!f.project_id} type="date" value={f.due_date} onChange={set("due_date")} /></Field>
               <Field label="Start date (defaults to today, editable)"><Input type="date" value={f.start_date} onChange={set("start_date")} /></Field>
               <Field label="Project (optional)">
                 <Select value={f.project_id} onChange={set("project_id")}><option value="">None</option>{meta.data?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>

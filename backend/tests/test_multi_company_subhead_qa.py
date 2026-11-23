@@ -321,3 +321,117 @@ def test_cross_department_peer_head_assignment(client, as_user, seeded):
     t = r.json()["task"]
     assert t["assignee"]["id"] == hr_id
 
+
+def test_multi_heads_and_head_also_acting_as_subhead(client, as_user, seeded):
+    dev_id = eid(seeded, DEVHEAD)
+    fe_id = eid(seeded, FE)
+    hr_id = eid(seeded, HRHEAD)
+
+    with seeded() as s:
+        d = s.query(Department).filter(Department.code == "DEV").first()
+        dept_id = d.id
+
+    # Admin sets multiple heads (DEVHEAD, HRHEAD) and subheads (DEVHEAD, FE)
+    # Notice DEVHEAD is both Head and SubHead!
+    r = client.put(
+        f"{API}/departments/{dept_id}/leaders",
+        headers=as_user("admin"),
+        json={"head_employee_ids": [dev_id, hr_id], "sub_head_employee_ids": [dev_id, fe_id]},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert dev_id in data["head_employee_ids"]
+    assert hr_id in data["head_employee_ids"]
+    assert dev_id in data["sub_head_employee_ids"]
+    assert fe_id in data["sub_head_employee_ids"]
+
+
+def test_project_task_inherits_deadline_and_special_note(client, as_user, seeded):
+    abc_id = eid(seeded, ABC)
+    fe_id = eid(seeded, FE)
+
+    # 1. Create project with priority and special_note
+    p_ends = str(date.today() + timedelta(days=14))
+    r = client.post(f"{API}/projects", headers=as_user("owner"), json={
+        "name": "Chatbot 2.0",
+        "priority": "critical",
+        "special_note": "Confidential AI project",
+        "ends_on": p_ends,
+        "points": [{"title": "API Backend", "expected_result": "Working REST API"}],
+    })
+    assert r.status_code == 201
+    pr_id = r.json()["id"]
+
+    # Verify project summary contains priority and special_note
+    pr_get = client.get(f"{API}/projects/{pr_id}", headers=as_user("owner")).json()
+    assert pr_get["priority"] == "critical"
+    assert pr_get["special_note"] == "Confidential AI project"
+
+    # 2. Assign point without separate due_date
+    point_id = pr_get["points"][0]["id"]
+    r_assign = client.post(f"{API}/projects/{pr_id}/points/{point_id}/assign", headers=as_user("owner"), json={
+        "assignee_id": abc_id,
+        "priority": "high",
+        "special_note": "Deliver with OpenAPI docs",
+    })
+    assert r_assign.status_code == 201
+    task_id = r_assign.json()["task"]["id"]
+
+    # Verify task inherited project deadline
+    t_get = client.get(f"{API}/tasks/{task_id}", headers=as_user("owner")).json()
+    assert t_get["due_at"].startswith(p_ends)
+    assert t_get["special_note"] == "Deliver with OpenAPI docs"
+
+    # 3. Create task directly linked to project without due_date
+    r_task = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Direct Project Task",
+        "description": "Task created under project without due_date",
+        "project_id": pr_id,
+        "assignee_id": fe_id,
+        "priority": "low",
+        "special_note": "Follow project styling guidelines",
+    })
+    assert r_task.status_code == 201
+    direct_t = r_task.json()["task"]
+    assert direct_t["due_at"].startswith(p_ends)
+
+    # Cleanup project
+    client.delete(f"{API}/projects/{pr_id}", headers=as_user("owner"))
+
+
+def test_ceo_hierarchy_scope_restrictions(client, as_user, seeded):
+    fe_id = eid(seeded, FE)
+    abc_id = eid(seeded, ABC)
+
+    # 1. Create a separate company without granting access to CEO
+    r_comp = client.post(f"{API}/companies", headers=as_user("owner"), json={"name": "Beta Industries", "code": "BETA"})
+    assert r_comp.status_code == 201
+    beta_id = r_comp.json()["id"]
+
+    # Create employee in Beta company
+    r_emp = client.post(f"{API}/employees", headers=as_user("admin"), json={
+        "email": "beta_worker@example.com",
+        "full_name": "Beta Worker",
+        "department_id": 1,
+        "temp_password": "Password123!",
+    })
+    assert r_emp.status_code == 201
+    beta_emp_id = r_emp.json()["id"]
+
+    # Assign beta_worker to Beta company
+    client.put(f"{API}/employees/{beta_emp_id}/companies", headers=as_user("admin"), json={"company_ids": [beta_id]})
+
+    # CEO attempts to change manager of Beta Worker -> 403 Forbidden
+    r_mgr = client.post(f"{API}/hierarchy/relationships", headers=as_user("ceo"), json={
+        "employee_id": beta_emp_id,
+        "reports_to_id": fe_id,
+    })
+    assert r_mgr.status_code == 403
+
+    # But CEO CAN manage hierarchy for employees in Company 1 (authorized default company)
+    r_mgr_ok = client.post(f"{API}/hierarchy/relationships", headers=as_user("ceo"), json={
+        "employee_id": abc_id,
+        "reports_to_id": fe_id,
+    })
+    assert r_mgr_ok.status_code == 204
+

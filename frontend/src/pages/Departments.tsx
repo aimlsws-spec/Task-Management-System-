@@ -4,7 +4,22 @@ import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinn
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type Dept = { id: number; name: string; code: string; company_id?: number; head_employee_id: number | null; sub_head_employee_id: number | null; qa_employee_id: number | null; is_active: boolean; is_system: boolean; self_service: boolean };
+type Dept = {
+  id: number;
+  name: string;
+  code: string;
+  company_id?: number;
+  head_employee_id: number | null;
+  sub_head_employee_id: number | null;
+  head_employee_ids?: number[];
+  sub_head_employee_ids?: number[];
+  qa_employee_id: number | null;
+  is_active: boolean;
+  is_system: boolean;
+  self_service: boolean;
+  is_shared?: boolean;
+  company_ids?: number[];
+};
 type Emp = { id: number; full_name: string; is_active: boolean };
 
 /** Administration > Departments: add, rename, activate/deactivate, delete, choose heads and QA testers, control sign-up visibility. */
@@ -17,6 +32,7 @@ export function Departments() {
   const [code, setCode] = useState("");
   const [regroup, setRegroup] = useState(true);
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(null);
+  const [managingLeaders, setManagingLeaders] = useState<Dept | null>(null);
   const [notice, setNotice] = useState("");
 
   const refresh = () => { qc.invalidateQueries({ queryKey: ["departments"] }); qc.invalidateQueries({ queryKey: ["employees"] }); qc.invalidateQueries({ queryKey: ["hierarchy"] }); };
@@ -105,6 +121,7 @@ export function Departments() {
                   </td>
                   <td className="p-3"><Badge tone={d.is_active ? "green" : "grey"}>{d.is_active ? "Active" : "Inactive"}</Badge></td>
                   <td className="whitespace-nowrap p-3 text-right">
+                    {!d.is_system && <Button variant="ghost" onClick={() => setManagingLeaders(d)}>Leaders</Button>}
                     {!d.is_system && editing?.id !== d.id && <Button variant="ghost" onClick={() => setEditing({ id: d.id, name: d.name })}>Rename</Button>}
                     {!d.is_system && <Button variant="ghost" onClick={() => patch.mutate({ id: d.id, body: { is_active: !d.is_active } })}>{d.is_active ? "Deactivate" : "Activate"}</Button>}
                     {!d.is_system && <Button variant="ghost" className="text-red-600" onClick={() => confirm(`Delete ${d.name}? This only works for an empty department.`) && del.mutate(d.id)}>Delete</Button>}
@@ -115,6 +132,71 @@ export function Departments() {
           </table>
         )}
       </Card>
+
+      {managingLeaders && (
+        <ManageLeadersModal
+          dept={managingLeaders}
+          emps={emps.data?.items ?? []}
+          onClose={() => setManagingLeaders(null)}
+          onSaved={() => {
+            setManagingLeaders(null);
+            setNotice("Department leaders updated successfully.");
+            refresh();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ManageLeadersModal({ dept, emps, onClose, onSaved }: { dept: Dept; emps: Emp[]; onClose: () => void; onSaved: () => void }) {
+  const [headIds, setHeadIds] = useState<number[]>(dept.head_employee_ids ?? (dept.head_employee_id ? [dept.head_employee_id] : []));
+  const [subHeadIds, setSubHeadIds] = useState<number[]>(dept.sub_head_employee_ids ?? (dept.sub_head_employee_id ? [dept.sub_head_employee_id] : []));
+  const [search, setSearch] = useState("");
+
+  const filtered = emps.filter((e) => e.is_active && e.full_name.toLowerCase().includes(search.toLowerCase()));
+
+  const save = useMutation({
+    mutationFn: () => api(`/departments/${dept.id}/leaders`, {
+      method: "PUT",
+      body: { head_employee_ids: headIds, sub_head_employee_ids: subHeadIds },
+    }),
+    onSuccess: onSaved,
+  });
+
+  const toggleHead = (id: number) => setHeadIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleSubHead = (id: number) => setSubHeadIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <Card className="w-full max-w-lg p-5">
+        <h2 className="text-base font-semibold text-brand-ink">Manage Leaders for {dept.name}</h2>
+        <p className="mt-1 text-xs text-slate-500">Multiple Heads and SubHeads can exist in a department. An employee can hold both Head and SubHead roles.</p>
+        <Input className="my-3 text-xs" placeholder="Filter employees..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="max-h-60 overflow-y-auto space-y-2 rounded-lg border border-hairline p-2">
+          {filtered.map((e) => (
+            <div key={e.id} className="flex items-center justify-between rounded p-1.5 hover:bg-slate-50 text-xs">
+              <span className="font-medium text-slate-800">{e.full_name}</span>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={headIds.includes(e.id)} onChange={() => toggleHead(e.id)} />
+                  <span>Head</span>
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={subHeadIds.includes(e.id)} onChange={() => toggleSubHead(e.id)} />
+                  <span>SubHead</span>
+                </label>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && <p className="text-xs text-slate-400 p-2">No matching employees.</p>}
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={save.isPending} onClick={() => save.mutate()}>Save Leaders</Button>
+        </div>
+        <ErrorNote error={save.error} />
+      </Card>
+    </div>
   );
 }

@@ -9,6 +9,7 @@ from app.core.errors import NotFound
 from app.core.schemas import Strict
 from app.modules.audit import service as audit
 from app.modules.org import admin_service, invites, service
+from app.modules.org import models as org_models
 from app.modules.org.models import Department, Employee, ReportingRelationship
 from app.modules.rbac.policy import Principal
 
@@ -50,12 +51,30 @@ class OnboardingIn(Strict):
     designation: str = Field(min_length=2, max_length=100)
 
 
-def _dept(d: Department) -> dict:
-    return {"id": d.id, "name": d.name, "code": d.code, "parent_id": d.parent_id,
-            "company_id": getattr(d, "company_id", 1),
-            "head_employee_id": d.head_employee_id, "sub_head_employee_id": getattr(d, "sub_head_employee_id", None),
-            "qa_employee_id": d.qa_employee_id, "is_active": d.is_active,
-            "is_system": d.is_system, "self_service": d.self_service}  # fmt: skip
+class DepartmentLeadersIn(Strict):
+    head_employee_ids: list[int] = Field(default_factory=list)
+    sub_head_employee_ids: list[int] = Field(default_factory=list)
+
+
+class CompaniesIn(Strict):
+    company_ids: list[int] = Field(default_factory=list)
+
+
+def _dept(db, d: Department) -> dict:
+    leaders = org_models.department_leaders(db, d.id)
+    c_ids = org_models.department_company_ids(db, d)
+    return {
+        "id": d.id, "name": d.name, "code": d.code, "parent_id": d.parent_id,
+        "company_id": getattr(d, "company_id", 1),
+        "head_employee_id": d.head_employee_id,
+        "sub_head_employee_id": getattr(d, "sub_head_employee_id", None),
+        "head_employee_ids": leaders["heads"],
+        "sub_head_employee_ids": leaders["sub_heads"],
+        "company_ids": sorted(c_ids) if c_ids is not None else [],
+        "is_shared": d.company_id is None,
+        "qa_employee_id": d.qa_employee_id, "is_active": d.is_active,
+        "is_system": d.is_system, "self_service": d.self_service,
+    }
 
 
 @router.get("/departments")
@@ -64,12 +83,12 @@ def list_departments(company_id: int | None = None, p: Principal = Depends(get_p
     q = select(Department).order_by(Department.name)
     if company_id is not None:
         q = q.where(Department.company_id == company_id)
-    return [_dept(d) for d in p.db.scalars(q)]
+    return [_dept(p.db, d) for d in p.db.scalars(q)]
 
 
 @router.post("/departments", status_code=201)
 def create_department(body: DepartmentIn, request: Request, p: Principal = Depends(require("department.manage"))):
-    return _dept(service.create_department(p.db, p, body.name, body.code, body.parent_id, request, company_id=body.company_id or 1))
+    return _dept(p.db, service.create_department(p.db, p, body.name, body.code, body.parent_id, request, company_id=body.company_id or 1))
 
 
 @router.patch("/departments/{dept_id}")
@@ -80,21 +99,42 @@ def update_department(dept_id: int, body: DepartmentPatch, request: Request, p: 
     for k, v in data.items():
         setattr(d, k, v)
     audit.log(p.db, p.user.id, "DEPARTMENT_UPDATED", "department", d.id, before=before, after=data, request=request)
-    return _dept(d)
+    return _dept(p.db, d)
 
 
 @router.put("/departments/{dept_id}/head")
 def set_head(dept_id: int, body: HeadIn, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
     moved = service.set_department_head(p.db, p, d, body.head_employee_id, request, regroup=body.regroup_members)
-    return {**_dept(d), "members_moved": moved}
+    return {**_dept(p.db, d), "members_moved": moved}
 
 
 @router.put("/departments/{dept_id}/subhead")
 def set_subhead(dept_id: int, body: SubHeadIn, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
     service.set_department_sub_head(p.db, p, d, body.sub_head_employee_id, request)
-    return _dept(d)
+    return _dept(p.db, d)
+
+
+@router.put("/departments/{dept_id}/leaders")
+def set_department_leaders(dept_id: int, body: DepartmentLeadersIn, request: Request, p: Principal = Depends(require("department.manage"))):
+    d = _or_404(p.db.get(Department, dept_id), "Department")
+    service.set_department_leaders(p.db, p, d, body.head_employee_ids, body.sub_head_employee_ids, request)
+    return _dept(p.db, d)
+
+
+@router.put("/departments/{dept_id}/companies")
+def set_department_companies(dept_id: int, body: CompaniesIn, request: Request, p: Principal = Depends(require("department.manage"))):
+    d = _or_404(p.db.get(Department, dept_id), "Department")
+    service.set_department_companies(p.db, p, d, body.company_ids, request)
+    return _dept(p.db, d)
+
+
+@router.put("/employees/{emp_id}/companies")
+def set_employee_companies(emp_id: int, body: CompaniesIn, request: Request, p: Principal = Depends(require("employee.manage"))):
+    emp = _or_404(p.db.get(Employee, emp_id), "Employee")
+    service.set_employee_companies(p.db, p, emp, body.company_ids, request)
+    return service.employee_dict(p.db, emp)
 
 
 class QaIn(Strict):
@@ -106,7 +146,7 @@ def set_qa(dept_id: int, body: QaIn, request: Request, p: Principal = Depends(re
     """ADR 008: the department's QA tester. Finished work from the department is tested by them before the head reviews it."""
     d = _or_404(p.db.get(Department, dept_id), "Department")
     service.set_department_qa(p.db, p, d, body.qa_employee_id, request)
-    return _dept(d)
+    return _dept(p.db, d)
 
 
 @router.delete("/departments/{dept_id}", status_code=204)

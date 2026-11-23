@@ -70,7 +70,9 @@ def effective_heads(db: Session, t: Task) -> list[int]:
     if not heads:
         dept = _assignee_department(db, t)
         if dept:
-            for h in (dept.head_employee_id, getattr(dept, "sub_head_employee_id", None)):
+            from app.modules.org import models as org_models
+            dl = org_models.department_leaders(db, dept.id)
+            for h in dl["heads"] + dl["sub_heads"]:
                 if h and h not in heads:
                     heads.append(h)
 

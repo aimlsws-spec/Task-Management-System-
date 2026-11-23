@@ -23,9 +23,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint('fk_task_qa', 'tasks', type_='foreignkey')
-    op.drop_constraint('fk_task_head', 'tasks', type_='foreignkey')
-    op.drop_column('tasks', 'qa_employee_id')
-    op.drop_column('tasks', 'head_employee_id')
-    op.drop_constraint('fk_project_qa', 'projects', type_='foreignkey')
-    op.drop_column('projects', 'qa_employee_id')
+    conn = op.get_bind()
+    for sql in (
+        "ALTER TABLE tasks DROP FOREIGN KEY fk_task_qa;",
+        "ALTER TABLE tasks DROP FOREIGN KEY fk_task_head;",
+        "ALTER TABLE tasks DROP COLUMN qa_employee_id;",
+        "ALTER TABLE tasks DROP COLUMN head_employee_id;",
+        "ALTER TABLE projects DROP FOREIGN KEY fk_project_qa;",
+        "ALTER TABLE projects DROP COLUMN qa_employee_id;",
+    ):
+        try:
+            conn.execute(sa.text(sql))
+        except Exception:
+            pass

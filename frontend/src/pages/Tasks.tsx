@@ -40,7 +40,7 @@ export function Tasks() {
         actions={can("task.create") && can("task.assign") ? <Link to="/tasks/new"><Button>Assign task</Button></Link> : undefined}
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Input className="sm:max-w-56" placeholder="Search title or TSK-…" value={get("q")} onChange={(e) => set("q", e.target.value)} />
+        <Input className="sm:max-w-56" placeholder="Search tasks..." value={get("q")} onChange={(e) => set("q", e.target.value)} />
         <Select className="sm:max-w-40" value={get("status")} onChange={(e) => set("status", e.target.value)}>
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}

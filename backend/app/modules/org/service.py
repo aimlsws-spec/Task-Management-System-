@@ -12,7 +12,17 @@ from app.modules.auth.models import User
 from app.modules.auth.service import revoke_all_sessions
 from app.modules.notifications import direct
 from app.modules.org import codes
-from app.modules.org.models import Department, Employee, ReportingRelationship
+from app.modules.org.models import (
+    Department,
+    DepartmentCompany,
+    DepartmentHead,
+    Employee,
+    EmployeeCompany,
+    ReportingRelationship,
+    department_company_ids,
+    department_leaders,
+    employee_company_ids,
+)
 from app.modules.rbac.models import Role, UserRole
 from app.modules.rbac.policy import Principal, subtree_ids, user_max_rank
 
@@ -177,10 +187,13 @@ def role_codes(db: Session, user_id: int) -> list[str]:
 
 def employee_dict(db: Session, e: Employee) -> dict:
     u = db.get(User, e.user_id)
+    cids = employee_company_ids(db, e)
     return {
         "id": e.id, "user_id": e.user_id, "employee_code": e.employee_code, "full_name": e.full_name,
         "email": u.email, "phone": e.phone, "job_title": e.job_title, "department_id": e.department_id,
         "company_id": getattr(e, "company_id", 1),
+        "company_ids": sorted(cids) if cids is not None else [],
+        "is_shared": e.company_id is None,
         "status": e.status, "is_active": u.is_active, "daily_capacity_hours": float(e.daily_capacity_hours),
         "can_receive_tasks": e.can_receive_tasks, "roles": role_codes(db, e.user_id),
         "reports_to_id": current_manager_id(db, e.id),
@@ -304,10 +317,18 @@ def set_manager(db: Session, p: Principal, employee_id: int, reports_to_id: int 
     if emp is None:
         raise NotFound("Employee")
     guard_rank(db, p, emp)
+    if hasattr(p, "can_access_company"):
+        emp_cids = employee_company_ids(db, emp)
+        if emp_cids is not None and not any(p.can_access_company(cid) for cid in emp_cids):
+            raise Forbidden("You cannot manage employee hierarchy outside your authorized companies")
     if reports_to_id is not None:
         boss = db.get(Employee, reports_to_id)
         if boss is None or boss.status == "inactive":
             raise AppError("INVALID_MANAGER", "Manager must be an active employee", 422)
+        if hasattr(p, "can_access_company"):
+            boss_cids = employee_company_ids(db, boss)
+            if boss_cids is not None and not any(p.can_access_company(cid) for cid in boss_cids):
+                raise Forbidden("Manager must belong to your authorized companies")
         if reports_to_id == employee_id or reports_to_id in subtree_ids(db, employee_id):
             raise AppError("HIERARCHY_CYCLE", "This change would create a reporting cycle", 409)
     old = current_manager_id(db, employee_id)
@@ -330,6 +351,85 @@ def set_manager(db: Session, p: Principal, employee_id: int, reports_to_id: int 
     if audit_it:
         audit.log(db, p.user.id, "REPORTING_LINE_CHANGED", "employee", employee_id,
                   before={"reports_to_id": old}, after={"reports_to_id": reports_to_id}, request=request)  # fmt: skip
+
+
+def set_department_leaders(
+    db: Session, p: Principal, dept: Department, head_ids: list[int], sub_head_ids: list[int], request: Request
+) -> None:
+    dept_cids = department_company_ids(db, dept)
+    if dept_cids is not None and not any(p.can_access_company(cid) for cid in dept_cids):
+        raise Forbidden("You cannot manage departments outside your authorized companies")
+
+    all_emp_ids = set(head_ids) | set(sub_head_ids)
+    for eid in all_emp_ids:
+        emp = db.get(Employee, eid)
+        if emp is None or emp.status == "inactive":
+            raise AppError("INVALID_EMPLOYEE", f"Employee {eid} must be an active employee", 422)
+
+    existing = db.scalars(select(DepartmentHead).where(DepartmentHead.department_id == dept.id)).all()
+    existing_map = {(dh.employee_id, dh.role): dh for dh in existing}
+
+    target = set()
+    for h in head_ids:
+        target.add((h, "head"))
+    for s in sub_head_ids:
+        target.add((s, "sub_head"))
+
+    for key, dh in existing_map.items():
+        if key not in target:
+            db.delete(dh)
+
+    for key in target:
+        if key not in existing_map:
+            db.add(DepartmentHead(department_id=dept.id, employee_id=key[0], role=key[1]))
+
+    dept.head_employee_id = head_ids[0] if head_ids else None
+    dept.sub_head_employee_id = sub_head_ids[0] if sub_head_ids else None
+    db.flush()
+
+    head_role = db.scalar(select(Role).where(Role.code == HEAD_ROLE))
+    sub_role = db.scalar(select(Role).where(Role.code == SUB_HEAD_ROLE))
+    for h in head_ids:
+        emp = db.get(Employee, h)
+        if emp and head_role and not db.scalar(select(UserRole.user_id).where(UserRole.user_id == emp.user_id, UserRole.role_id == head_role.id)):
+            db.add(UserRole(user_id=emp.user_id, role_id=head_role.id, granted_by=p.user.id))
+    for s in sub_head_ids:
+        emp = db.get(Employee, s)
+        if emp and sub_role and not db.scalar(select(UserRole.user_id).where(UserRole.user_id == emp.user_id, UserRole.role_id == sub_role.id)):
+            db.add(UserRole(user_id=emp.user_id, role_id=sub_role.id, granted_by=p.user.id))
+    db.flush()
+
+    audit.log(db, p.user.id, "DEPARTMENT_LEADERS_UPDATED", "department", dept.id,
+              after={"heads": head_ids, "sub_heads": sub_head_ids}, request=request)
+
+
+def set_department_companies(db: Session, p: Principal, dept: Department, company_ids: list[int], request: Request) -> None:
+    if not p.has("department.manage"):
+        raise Forbidden("Permission denied")
+    db.query(DepartmentCompany).filter(DepartmentCompany.department_id == dept.id).delete()
+    if not company_ids:
+        dept.company_id = None
+    else:
+        dept.company_id = company_ids[0]
+        for cid in set(company_ids):
+            db.add(DepartmentCompany(department_id=dept.id, company_id=cid))
+    db.flush()
+    audit.log(db, p.user.id, "DEPARTMENT_COMPANIES_UPDATED", "department", dept.id,
+              after={"company_ids": company_ids}, request=request)
+
+
+def set_employee_companies(db: Session, p: Principal, emp: Employee, company_ids: list[int], request: Request) -> None:
+    guard_rank(db, p, emp)
+    db.query(EmployeeCompany).filter(EmployeeCompany.employee_id == emp.id).delete()
+    if not company_ids:
+        emp.company_id = None
+    else:
+        emp.company_id = company_ids[0]
+        for cid in set(company_ids):
+            db.add(EmployeeCompany(employee_id=emp.id, company_id=cid))
+    db.flush()
+    audit.log(db, p.user.id, "EMPLOYEE_COMPANIES_UPDATED", "employee", emp.id,
+              after={"company_ids": company_ids}, request=request)
 
 
 def hierarchy_tree(db: Session, visible_ids: set[int] | None, company_id: int | None = None) -> list[dict]:

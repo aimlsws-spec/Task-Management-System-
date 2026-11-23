@@ -1,3 +1,4 @@
+import { AlertOctagon, AlertTriangle, ArrowDown, Minus } from "lucide-react";
 import { Badge } from "@/components/ui";
 
 export type Person = { id: number; full_name: string; job_title: string | null; department_id: number; employee_code: string };
@@ -108,7 +109,15 @@ export function StatusBadge({ status }: { status: string }) {
 const PRIORITY = { critical: { tone: "red", label: "Critical" }, high: { tone: "orange", label: "High" }, medium: { tone: "blue", label: "Medium" }, low: { tone: "grey", label: "Low" } } as const;
 export function PriorityChip({ priority }: { priority: string }) {
   const p = PRIORITY[priority as keyof typeof PRIORITY] ?? PRIORITY.medium;
-  return <Badge tone={p.tone}>{p.label}</Badge>;
+  const Icon = priority === "critical" ? AlertOctagon : priority === "high" ? AlertTriangle : priority === "low" ? ArrowDown : Minus;
+  return (
+    <Badge tone={p.tone}>
+      <span className="inline-flex items-center gap-1">
+        <Icon className="h-3 w-3" />
+        <span>{p.label}</span>
+      </span>
+    </Badge>
+  );
 }
 
 export function LevelBadge({ level }: { level: Workload["level"] }) {

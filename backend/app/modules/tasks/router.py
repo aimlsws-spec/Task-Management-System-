@@ -23,9 +23,10 @@ class TaskIn(Strict):
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(min_length=3, max_length=20000)
     instructions: str | None = Field(None, max_length=20000)
+    special_note: str | None = Field(None, max_length=20000)
     assignee_id: int
     priority: Priority
-    due_date: date
+    due_date: date | None = None
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)  # optional: owners give a deadline, not an effort estimate
     company_id: int | None = None
@@ -43,6 +44,7 @@ class TaskPatch(Strict):
     title: str | None = Field(None, min_length=3, max_length=200)
     description: str | None = Field(None, min_length=3, max_length=20000)
     instructions: str | None = Field(None, max_length=20000)
+    special_note: str | None = Field(None, max_length=20000)
     start_date: date | None = None
     estimated_hours: float | None = Field(None, gt=0, le=1000)
     company_id: int | None = None

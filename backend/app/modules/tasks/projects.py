@@ -103,6 +103,8 @@ def summary(db: Session, pr: Project) -> dict:
     head_reviewer = db.scalar(select(Employee.full_name).where(Employee.user_id == pr.head_reviewed_by_user_id)) if getattr(pr, "head_reviewed_by_user_id", None) else None
     return {
         "id": pr.id, "code": pr.code, "name": pr.name, "description": pr.description, "status": pr.status,
+        "priority": getattr(pr, "priority", "medium") or "medium",
+        "special_note": getattr(pr, "special_note", None),
         "expected_result": pr.expected_result, "head": _person(db, pr.head_employee_id),
         "sub_head": _person(db, getattr(pr, "sub_head_employee_id", None)),
         "heads": [_person(db, hid) for hid in loop.project_head_ids(db, pr)],
@@ -375,7 +377,9 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
     pr = Project(code=code, name=name, description=d.get("description"), expected_result=d.get("expected_result"),
                  department_id=department_id, company_id=company_id, starts_on=s, ends_on=e,
                  owner_employee_id=p.employee.id if p.employee else None,
-                 assignee_id=assignee_id, progress_pct=0)
+                 assignee_id=assignee_id, progress_pct=0,
+                 priority=d.get("priority", "medium"),
+                 special_note=d.get("special_note") or d.get("instructions"))
     db.add(pr)
     db.flush()
     _set_heads(db, p, pr, head_ids or [], request)
@@ -403,7 +407,7 @@ def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Req
     if "ends_on" in d and d["ends_on"] is None:
         raise AppError("DEADLINE_REQUIRED", "A project needs a deadline (end date)", 422)
     before, after = {}, {}
-    for k in ("name", "description", "expected_result", "starts_on", "ends_on"):
+    for k in ("name", "description", "expected_result", "starts_on", "ends_on", "priority", "special_note"):
         if k in d and getattr(pr, k) != d[k]:
             before[k], after[k] = str(getattr(pr, k)), str(d[k])
             setattr(pr, k, d[k])
@@ -548,7 +552,10 @@ def assign_point(db: Session, p: Principal, pr: Project, point_id: int, d: dict,
         raise Conflict("POINT_ASSIGNED", "This point has already been assigned")
     body = {
         "title": x.title, "description": "\n\n".join(s for s in (x.details, f"Expected result: {x.expected_result}" if x.expected_result else None) if s) or x.title,
-        "instructions": d.get("instructions"), "assignee_id": d["assignee_id"], "priority": d["priority"], "due_date": d["due_date"],
+        "instructions": d.get("instructions") or d.get("special_note"),
+        "special_note": d.get("special_note") or d.get("instructions"),
+        "assignee_id": d["assignee_id"], "priority": d.get("priority", "medium"),
+        "due_date": d.get("due_date") or pr.ends_on,
         "head_employee_id": d.get("head_employee_id"), "sub_head_employee_id": d.get("sub_head_employee_id"),
         "head_employee_ids": d.get("head_employee_ids"),
         "qa_employee_id": d.get("qa_employee_id"), "qa_employee_ids": d.get("qa_employee_ids"),

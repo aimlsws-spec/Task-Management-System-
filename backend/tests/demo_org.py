@@ -43,6 +43,7 @@ def seed_demo(db: Session, password: str = "Demo@12345!") -> None:
 
     class _Actor:  # minimal stand-in for audit/created_by during seeding
         rank = 110
+        can_access_company = staticmethod(lambda cid: True)
 
         class user:  # noqa: N801
             id = admin.user_id

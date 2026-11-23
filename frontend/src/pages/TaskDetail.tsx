@@ -163,7 +163,7 @@ export function TaskDetail() {
           <Card className="p-5">
             <h2 className="text-sm font-semibold">Description</h2>
             <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{t.description}</p>
-            {t.instructions && (<><h2 className="mt-5 text-sm font-semibold">Additional instructions</h2><p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{t.instructions}</p></>)}
+            {t.instructions && (<><h2 className="mt-5 text-sm font-semibold">Special Note</h2><p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{t.instructions}</p></>)}
             {t.status === "cancelled" && <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700"><b>Cancelled:</b> {t.cancel_reason}</p>}
             <div className="mt-5">
               <div className="flex justify-between text-xs text-slate-500"><span>Progress</span><span>{t.progress_pct}%</span></div>
@@ -449,7 +449,7 @@ function EditPanel({ t, onSave, onClose }: { t: Task; onSave: (b: Record<string,
       >
         <div className="sm:col-span-2"><Field label="Title"><Input required minLength={3} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field></div>
         <div className="sm:col-span-2"><Field label="Description"><textarea required rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={textarea} /></Field></div>
-        <div className="sm:col-span-2"><Field label="Instructions"><textarea rows={2} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} className={textarea} /></Field></div>
+        <div className="sm:col-span-2"><Field label="Special Note"><textarea rows={2} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} className={textarea} placeholder="Special note..." /></Field></div>
 
         <div className="sm:col-span-2">
           <Field label={`Responsible Heads (${selectedHeads.length} selected, multiple heads supported)`}>

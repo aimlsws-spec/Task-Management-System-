@@ -3,12 +3,14 @@ import { FolderKanban, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
+import { PriorityChip } from "@/components/task-ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export type Person = { id: number; full_name: string; job_title: string | null };
 export type ProjectSummary = {
   id: number; code: string; name: string; description: string | null; status: string; expected_result: string | null;
+  priority?: string; special_note?: string | null;
   company_id?: number;
   head: Person | null; sub_head?: Person | null; heads?: Person[]; qa: Person | null; qa_members?: Person[];
   created_by?: Person | null;
@@ -51,6 +53,7 @@ export function Projects() {
                 <div className="flex items-start justify-between gap-3">
                   <div><div className="text-base font-semibold text-brand-ink group-hover:text-indigo-700">{p.name}</div><div className="text-xs text-slate-500">{p.code}</div></div>
                   <div className="flex flex-wrap justify-end gap-1.5">
+                    <PriorityChip priority={p.priority || "medium"} />
                     {p.ready_for_review && <Badge tone="purple">Ready for review</Badge>}
                     <Badge tone={STATUS_TONE[p.status] ?? "grey"}>{p.status.replace("_", " ")}</Badge>
                   </div>
@@ -75,7 +78,7 @@ function CreateProject({ onDone }: { onDone: () => void }) {
   const nav = useNavigate();
   const emps = useEmployees();
   const today = new Date().toISOString().slice(0, 10);
-  const [f, setF] = useState({ name: "", description: "", expected_result: "", starts_on: today, ends_on: "" });
+  const [f, setF] = useState({ name: "", description: "", special_note: "", priority: "medium", expected_result: "", starts_on: today, ends_on: "" });
   const [assignee, setAssignee] = useState("");
   const [team, setTeam] = useState<number[]>([]);
   const [selectedHeads, setSelectedHeads] = useState<number[]>([]);
@@ -98,6 +101,7 @@ function CreateProject({ onDone }: { onDone: () => void }) {
     mutationFn: () => api<{ id: number }>("/projects", {
       body: {
         name: f.name, description: f.description || null, expected_result: f.expected_result || null,
+        priority: f.priority, special_note: f.special_note || null,
         assignee_id: assignee ? Number(assignee) : null,
         head_employee_id: selectedHeads[0] ?? null,
         sub_head_employee_id: selectedHeads[1] ?? null,
@@ -122,6 +126,12 @@ function CreateProject({ onDone }: { onDone: () => void }) {
         <div className="space-y-4">
           <Field label="Project name"><Input required minLength={2} value={f.name} onChange={set("name")} placeholder="e.g. Elala" /></Field>
           <Field label="What is this project about? (optional)"><textarea rows={3} value={f.description} onChange={set("description")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" /></Field>
+          <Field label="Special Note (optional)"><textarea rows={2} value={f.special_note} onChange={set("special_note")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" placeholder="Special note or instructions..." /></Field>
+          <Field label="Priority">
+            <Select value={f.priority} onChange={set("priority")}>
+              {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+            </Select>
+          </Field>
           <Field label="Expected result: what should exist when it is finished?"><textarea rows={3} value={f.expected_result} onChange={set("expected_result")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" /></Field>
           <Field label="Assign project to employee (optional)">
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>

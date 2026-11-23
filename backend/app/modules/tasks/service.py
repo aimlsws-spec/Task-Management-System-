@@ -168,8 +168,11 @@ def is_peer_head(db: Session, p: Principal, assignee: Employee) -> bool:
         return False
     from app.modules.notifications.resolver import role_codes
 
-    if p.employee and getattr(p.employee, "company_id", None) and getattr(assignee, "company_id", None):
-        if p.employee.company_id != assignee.company_id:
+    if p.employee and assignee:
+        from app.modules.org import models as org_models
+        p_cids = org_models.employee_company_ids(db, p.employee)
+        a_cids = org_models.employee_company_ids(db, assignee)
+        if p_cids is not None and a_cids is not None and not (p_cids & a_cids):
             return False
     return "department_head" in role_codes(db, assignee.user_id)
 
@@ -178,8 +181,11 @@ def assert_assignable(db: Session, p: Principal, assignee: Employee | None) -> E
     """Who may receive a task from this person: in their assign-scope, not above their rank, not themselves."""
     if assignee is None:
         raise NotFound("Employee")  # outside scope == not found
-    if getattr(assignee, "company_id", None) and not p.can_access_company(assignee.company_id):
-        raise NotFound("Employee")
+    from app.modules.org import models as org_models
+    emp_cids = org_models.employee_company_ids(db, assignee)
+    if emp_cids is not None and p.company_ids() is not None:
+        if not (emp_cids & set(p.company_ids())):
+            raise NotFound("Employee")
     if not (p.can_see("task.assign", assignee.id) or is_peer_head(db, p, assignee)):
         raise NotFound("Employee")  # outside scope == not found
     if p.employee is not None and assignee.id == p.employee.id:
@@ -248,7 +254,7 @@ def task_dict(db: Session, t: Task, assignee: Employee | None = None, assigner: 
                 "unassigned_at": z(a.unassigned_at),
                 "reason": a.reason,
             })
-        out |= {"description": t.description, "instructions": t.instructions, "deadline_version": t.deadline_version,
+        out |= {"description": t.description, "instructions": t.instructions, "special_note": t.instructions, "deadline_version": t.deadline_version,
                 "cancelled_at": z(t.cancelled_at), "cancel_reason": t.cancel_reason,
                 "assignment_history": history,
                 "project": db.scalar(select(Project.name).where(Project.id == t.project_id)) if t.project_id else None,
@@ -339,11 +345,22 @@ def _log(db, p, action, t, before=None, after=None, request=None):
 def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[Task, list[str]]:
     assignee = assert_assignable(db, p, db.get(Employee, d["assignee_id"]))
     now = clock.utcnow()
-    due = resolve_due(db, d["due_date"])
+    project_id = d.get("project_id")
+    due_date = d.get("due_date")
+    if due_date is None:
+        if project_id:
+            pr = db.get(Project, project_id)
+            if pr and pr.ends_on:
+                due_date = pr.ends_on
+            else:
+                due_date = cal.utc_to_local(db, now).date()
+        else:
+            raise AppError("DEADLINE_REQUIRED", "A task without a project needs a deadline date", 422)
+    due = resolve_due(db, due_date)
     if due <= now:
         raise AppError("PAST_DEADLINE", "The deadline must be in the future", 422)
     start_date = d.get("start_date") or cal.utc_to_local(db, now).date()
-    if start_date > d["due_date"]:
+    if start_date > due_date:
         raise AppError("INVALID_START_DATE", "Start date cannot be after the deadline", 422)
 
     company_id = d.get("company_id") or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else getattr(assignee, "company_id", 1))
@@ -370,13 +387,9 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
         if not head_ids and not head_id and not sub_head_id:
             dept = db.get(Department, assignee.department_id)
             if dept:
-                fallback_heads = []
-                if dept.head_employee_id and dept.head_employee_id != assignee.id:
-                    head_id = dept.head_employee_id
-                    fallback_heads.append(dept.head_employee_id)
-                if getattr(dept, "sub_head_employee_id", None) and dept.sub_head_employee_id != assignee.id:
-                    sub_head_id = dept.sub_head_employee_id
-                    fallback_heads.append(dept.sub_head_employee_id)
+                from app.modules.org import models as org_models
+                dl = org_models.department_leaders(db, dept.id)
+                fallback_heads = [h for h in (dl["heads"] + dl["sub_heads"]) if h != assignee.id]
                 if fallback_heads:
                     head_ids = fallback_heads
         if not qa_ids:
@@ -401,9 +414,10 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
 
     creator_emp_id = p.employee.id if p.employee else assignee.id
     ttype = db.get(TaskType, d["type_id"]) if d.get("type_id") else None
+    instructions = d.get("special_note") or d.get("instructions")
     t = Task(
         task_no=f"TMP-{now.timestamp()}-{assignee.id}", title=d["title"], description=d["description"],
-        instructions=d.get("instructions"), project_id=d.get("project_id"), department_id=assignee.department_id,
+        instructions=instructions, project_id=d.get("project_id"), department_id=assignee.department_id,
         company_id=company_id, category_id=d.get("category_id"), type_id=d.get("type_id"), assignee_id=assignee.id,
         head_employee_id=head_id, sub_head_employee_id=sub_head_id, qa_employee_id=qa_id, assigned_by_id=creator_emp_id, priority=d["priority"], priority_rank=PRIORITY_RANK[d["priority"]],
         assigned_at=now, start_date=start_date, original_due_at=due, due_at=due,
@@ -445,6 +459,8 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
         raise Forbidden("Only Owner and CEO have authority to edit tasks")
     if t.status not in OPEN_STATUSES:
         raise AppError("TASK_CLOSED", "Completed or cancelled tasks cannot be edited", 409)
+    if "special_note" in d and d["special_note"] is not None:
+        d["instructions"] = d["special_note"]
     before, after = {}, {}
     if "company_id" in d and d["company_id"] != t.company_id:
         if not p.can_access_company(d["company_id"]):
