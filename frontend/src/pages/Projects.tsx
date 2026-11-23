@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderKanban, Plus, Trash2 } from "lucide-react";
+import { FolderKanban, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { PriorityChip } from "@/components/task-ui";
+import { AiAssistModal } from "@/components/AiAssistModal";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -128,6 +129,7 @@ function CreateProject({ onDone, initialCompanyId }: { onDone: () => void; initi
   const [team, setTeam] = useState<number[]>([]);
   const [selectedHeads, setSelectedHeads] = useState<number[]>([]);
   const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
+  const [aiOpen, setAiOpen] = useState(false);
   const [headSearch, setHeadSearch] = useState("");
   const [qaSearch, setQaSearch] = useState("");
   const [points, setPoints] = useState([{ title: "", expected_result: "" }]);
@@ -184,7 +186,20 @@ function CreateProject({ onDone, initialCompanyId }: { onDone: () => void; initi
               </Select>
             </Field>
           )}
-          <Field label="Project name"><Input required minLength={2} value={f.name} onChange={set("name")} placeholder="e.g. Elala" /></Field>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-slate-700">Project name *</span>
+              <button
+                type="button"
+                onClick={() => setAiOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors shadow-2xs border border-indigo-200 cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                Recommend with AI
+              </button>
+            </div>
+            <Input required minLength={2} value={f.name} onChange={set("name")} placeholder="e.g. Elala or HRMS" />
+          </div>
           <Field label="What is this project about? (optional)"><textarea rows={3} value={f.description} onChange={set("description")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" /></Field>
           <Field label="Special Note (optional)"><textarea rows={2} value={f.special_note} onChange={set("special_note")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" placeholder="Special note or instructions..." /></Field>
           <Field label="Priority">
@@ -273,6 +288,22 @@ function CreateProject({ onDone, initialCompanyId }: { onDone: () => void; initi
         </div>
         <div className="flex items-center gap-3 lg:col-span-2"><Button type="submit" disabled={create.isPending}>Create project</Button><ErrorNote error={create.error} /></div>
       </form>
+
+      <AiAssistModal
+        isOpen={aiOpen}
+        onClose={() => setAiOpen(false)}
+        title={f.name}
+        companyId={selectedCompanyId ? Number(selectedCompanyId) : 1}
+        priority={f.priority}
+        targetType="project"
+        existingDescription={f.description}
+        existingSpecialNote={f.special_note}
+        onApply={(desc, note) => {
+          setF((prev) => ({ ...prev, description: desc, special_note: note }));
+        }}
+        onApplyDescription={(desc) => setF((prev) => ({ ...prev, description: desc }))}
+        onApplySpecialNote={(note) => setF((prev) => ({ ...prev, special_note: note }))}
+      />
     </Card>
   );
 }

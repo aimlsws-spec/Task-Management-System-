@@ -1,8 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Sparkles } from "lucide-react";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { fmtDay, LevelBadge, LoadBar, OverdueBadge, PriorityChip, PriorityCounts, StatusBadge, type Task, type TaskPage, type Workload } from "@/components/task-ui";
+import { AiAssistModal } from "@/components/AiAssistModal";
 import { useEmployees } from "@/pages/Projects";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -28,6 +30,7 @@ export function NewTask() {
   const [qaSearch, setQaSearch] = useState("");
   const [selectedHeads, setSelectedHeads] = useState<number[]>([]);
   const [selectedQAs, setSelectedQAs] = useState<number[]>([]);
+  const [aiOpen, setAiOpen] = useState(false);
   const [f, setF] = useState({
     title: "", description: "", instructions: "", priority: "medium", due_date: "", start_date: today,
     project_id: sp.get("project_id") || "", category_id: "", type_id: "",
@@ -184,7 +187,20 @@ export function NewTask() {
           <Card className="p-5">
             <div className="pb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">2 · Task details</div>
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2"><Field label="Task title"><Input required minLength={3} maxLength={200} value={f.title} onChange={set("title")} placeholder="e.g. Develop AI Chatbot API" /></Field></div>
+              <div className="sm:col-span-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-slate-700">Task title *</span>
+                  <button
+                    type="button"
+                    onClick={() => setAiOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors shadow-2xs border border-indigo-200 cursor-pointer"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                    Recommend with AI
+                  </button>
+                </div>
+                <Input required minLength={3} maxLength={200} value={f.title} onChange={set("title")} placeholder="e.g. Elala UI changes or HRMS employee attendance" />
+              </div>
               <div className="sm:col-span-2"><Field label="Description"><textarea required minLength={3} rows={4} value={f.description} onChange={set("description")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" /></Field></div>
               <div className="sm:col-span-2"><Field label="Special Note (optional)"><textarea rows={2} value={f.instructions} onChange={set("instructions")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" placeholder="Special notes or instructions..." /></Field></div>
               <Field label="Priority">
@@ -288,6 +304,22 @@ export function NewTask() {
           </Card>
         </div>
       </div>
+
+      <AiAssistModal
+        isOpen={aiOpen}
+        onClose={() => setAiOpen(false)}
+        title={f.title}
+        companyId={effectiveCompanyId ? Number(effectiveCompanyId) : 1}
+        priority={f.priority}
+        targetType="task"
+        existingDescription={f.description}
+        existingSpecialNote={f.instructions}
+        onApply={(desc, note) => {
+          setF((prev) => ({ ...prev, description: desc, instructions: note }));
+        }}
+        onApplyDescription={(desc) => setF((prev) => ({ ...prev, description: desc }))}
+        onApplySpecialNote={(note) => setF((prev) => ({ ...prev, instructions: note }))}
+      />
     </>
   );
 }

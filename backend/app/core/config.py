@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     overdue_grace_minutes: int = 40
     upload_dir: str = "uploads"  # relative paths resolve against the backend folder
     max_upload_mb: int = 25
+    # AI Assistant (Zero-cost dual cloud engine: Google Gemini Free + OpenRouter Free Pool + Heuristics)
+    gemini_api_key: str = ""
+    openrouter_api_key: str = ""
+    ai_gemini_model: str = "gemini-2.0-flash"
+    ai_openrouter_models: str = "meta-llama/llama-3.3-70b-instruct:free,google/gemini-2.0-flash-exp:free,qwen/qwen-2.5-72b-instruct:free,meta-llama/llama-3.1-8b-instruct:free"
+    ai_provider: str = "auto"  # auto | gemini | openrouter | heuristic
 
 
 @lru_cache

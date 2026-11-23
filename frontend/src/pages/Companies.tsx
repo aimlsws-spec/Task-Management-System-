@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, UserCheck, X } from "lucide-react";
+import { BookOpen, Building2, Plus, Trash2, UserCheck, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -43,6 +43,7 @@ export function Companies() {
   const [assignCeoCompId, setAssignCeoCompId] = useState<number | null>(null);
   const [selectedCeoUserId, setSelectedCeoUserId] = useState<string>("");
   const [ceoInviteEmail, setCeoInviteEmail] = useState<string>("");
+  const [knowledgeComp, setKnowledgeComp] = useState<Company | null>(null);
 
   const companiesQuery = useQuery({
     queryKey: ["companies"],
@@ -227,12 +228,20 @@ export function Companies() {
                 setCeoInviteEmail={setCeoInviteEmail}
                 onAssignCeo={(arg) => assignCeo.mutate({ companyId: company.id, ...arg })}
                 onRemoveCeo={(userId) => removeCeo.mutate({ companyId: company.id, userId })}
+                onOpenKnowledge={(c) => setKnowledgeComp(c)}
                 isAssigning={assignCeo.isPending}
               />
             ))}
           </div>
         )}
       </div>
+
+      {knowledgeComp && (
+        <CompanyKnowledgeModal
+          company={knowledgeComp}
+          onClose={() => setKnowledgeComp(null)}
+        />
+      )}
     </>
   );
 }
@@ -249,6 +258,7 @@ function CompanyCard({
   setCeoInviteEmail,
   onAssignCeo,
   onRemoveCeo,
+  onOpenKnowledge,
   isAssigning,
 }: {
   company: Company;
@@ -262,6 +272,7 @@ function CompanyCard({
   setCeoInviteEmail: (email: string) => void;
   onAssignCeo: (arg: { userId?: number; email?: string }) => void;
   onRemoveCeo: (userId: number) => void;
+  onOpenKnowledge: (c: Company) => void;
   isAssigning: boolean;
 }) {
   const ceosQuery = useQuery({
@@ -404,6 +415,23 @@ function CompanyCard({
             </div>
           )}
         </div>
+        {/* AI Domain Knowledge */}
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
+            <span>AI Knowledge & Memory</span>
+            <button
+              type="button"
+              onClick={() => onOpenKnowledge(company)}
+              className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Manage Knowledge
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Terms & products (e.g. "Elala") learned by the AI for this company.
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 pt-2 border-t border-slate-100 text-[11px] text-slate-400 flex justify-between">
@@ -411,5 +439,160 @@ function CompanyCard({
         <span>Added {new Date(company.created_at).toLocaleDateString()}</span>
       </div>
     </Card>
+  );
+}
+
+type KnowledgeEntity = {
+  id: number;
+  company_id: number;
+  entity_key: string;
+  entity_name: string;
+  entity_type: string;
+  description: string;
+  tech_stack: string | null;
+  default_notes: string | null;
+  updated_at: string | null;
+};
+
+function CompanyKnowledgeModal({ company, onClose }: { company: Company; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [tech, setTech] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+
+  const entitiesQuery = useQuery({
+    queryKey: ["ai-entities", company.id],
+    queryFn: () => api<KnowledgeEntity[]>("/ai/entities", { params: { company_id: company.id } }),
+  });
+
+  const learnMutation = useMutation({
+    mutationFn: () =>
+      api("/ai/learn-entity", {
+        method: "POST",
+        body: {
+          company_id: company.id,
+          entity_name: name.trim(),
+          description: desc.trim(),
+          tech_stack: tech.trim() || null,
+        },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai-entities", company.id] });
+      setName("");
+      setDesc("");
+      setTech("");
+      setShowAdd(false);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      api(`/ai/entities/${id}`, {
+        method: "DELETE",
+        params: { company_id: company.id },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai-entities", company.id] });
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+      <Card className="w-full max-w-xl max-h-[85vh] flex flex-col p-5 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
+              <BookOpen className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-brand-ink">AI Knowledge Base — {company.name}</h2>
+              <p className="text-xs text-slate-500">Products, apps, and internal systems remembered by the AI</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-slate-400 hover:text-slate-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="my-4 flex-1 overflow-y-auto space-y-3 pr-1">
+          {entitiesQuery.isLoading && <Spinner />}
+
+          {entitiesQuery.data && entitiesQuery.data.length === 0 && !showAdd && (
+            <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-lg">
+              No custom products or terms recorded yet. When users create tasks mentioning new terms (like "Elala"), the AI will automatically learn them, or you can add them below.
+            </div>
+          )}
+
+          {entitiesQuery.data?.map((e) => (
+            <div key={e.id} className="p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-brand-ink">{e.entity_name}</span>
+                  <Badge tone="indigo">{e.entity_type}</Badge>
+                  {e.tech_stack && <span className="text-[11px] text-slate-500 font-mono">({e.tech_stack})</span>}
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">{e.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(e.id)}
+                disabled={deleteMutation.isPending}
+                className="text-slate-400 hover:text-red-600 p-1 rounded"
+                title="Delete this knowledge entry"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+
+          {showAdd && (
+            <div className="p-4 rounded-lg border-2 border-indigo-200 bg-indigo-50/40 space-y-3">
+              <h4 className="text-xs font-semibold text-indigo-950">Add Known Product / Project</h4>
+              <div>
+                <label className="text-[11px] font-medium text-slate-700 block mb-1">Name (e.g. "Elala") *</label>
+                <Input className="text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder="Product or project name" />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-700 block mb-1">Description *</label>
+                <textarea
+                  rows={2}
+                  className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:border-indigo-500"
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  placeholder="e.g. B2B jewelry eCommerce mobile app and admin portal"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-700 block mb-1">Tech Stack (optional)</label>
+                <Input className="text-xs" value={tech} onChange={(e) => setTech(e.target.value)} placeholder="e.g. Flutter, Node.js, MySQL" />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="ghost" className="text-xs py-1" onClick={() => setShowAdd(false)}>Cancel</Button>
+                <Button
+                  className="text-xs py-1"
+                  disabled={!name.trim() || !desc.trim() || learnMutation.isPending}
+                  onClick={() => learnMutation.mutate()}
+                >
+                  {learnMutation.isPending ? "Saving..." : "Save Knowledge"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+          {!showAdd ? (
+            <Button variant="outline" className="text-xs gap-1.5" onClick={() => setShowAdd(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Product / Entity
+            </Button>
+          ) : <div />}
+          <Button variant="ghost" className="text-xs" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }

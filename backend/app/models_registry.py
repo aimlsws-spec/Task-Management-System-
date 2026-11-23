@@ -1,5 +1,6 @@
 """Import every model module so Base.metadata is complete (used by Alembic, tests, seeding)."""
 
+from app.modules.ai import models as _ai  # noqa: F401
 from app.modules.audit import models as _audit  # noqa: F401
 from app.modules.auth import models as _auth  # noqa: F401
 from app.modules.collab import models as _collab  # noqa: F401

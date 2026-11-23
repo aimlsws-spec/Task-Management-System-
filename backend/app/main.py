@@ -11,6 +11,7 @@ from app import models_registry as _models  # noqa: F401  (registers every model
 from app.core import dbguard
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
+from app.modules.ai.router import router as ai_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.collab.router import router as collab_router
@@ -68,7 +69,7 @@ def create_app() -> FastAPI:
         return response
 
     api = APIRouter(prefix="/api/v1")
-    for r in (auth_router, org_router, companies_router, rbac_router, workcal_router, audit_router, tasks_router, projects_router, accountability_router, time_router, notifications_router, collab_router, reports_router):
+    for r in (ai_router, auth_router, org_router, companies_router, rbac_router, workcal_router, audit_router, tasks_router, projects_router, accountability_router, time_router, notifications_router, collab_router, reports_router):
         api.include_router(r)
     app.include_router(api)
 
