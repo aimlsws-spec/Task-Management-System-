@@ -14,13 +14,15 @@ function useNav() {
   const { me, can } = useAuth();
   const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const main: Item[] = [];
+  // Dashboard is ALWAYS on top for Owner, CEO, and all users
+  main.push({ to: "/", label: "Dashboard", icon: LayoutDashboard });
   if (isLeadership) {
     main.push(
       { to: "/tasks/new", label: "Assign Task", icon: PlusCircle },
       { to: "/projects?new=1", label: "Assign Project", icon: FolderPlus },
     );
   }
-  main.push({ to: "/", label: "Dashboard", icon: LayoutDashboard }, { to: "/notifications", label: "Notifications", icon: Bell });
+  main.push({ to: "/notifications", label: "Notifications", icon: Bell });
   // Work screens: everyone who can see tasks; people who assign work also get the workload view.
   if (can("task.view")) main.push({ to: "/tasks", label: me?.permissions["task.view"] === "self" ? "My Tasks" : "Tasks", icon: ListChecks });
   if (can("blocker.view") && me?.permissions["blocker.view"] !== "self") main.push({ to: "/blockers", label: "Blockers", icon: OctagonAlert });

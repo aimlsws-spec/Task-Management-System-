@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { FolderPlus, Network, PlusCircle, UserPlus } from "lucide-react";
+import { Building2, FolderPlus, Network, PlusCircle, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type DelayQueue, type TaskPage, type Workload } from "@/components/task-ui";
 import { OverviewPanel } from "@/components/Overview";
@@ -80,43 +80,189 @@ export function Dashboard() {
       </div>
       <div className="space-y-5">
         {isLeadership && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 p-3.5 border border-indigo-100 shadow-sm">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-xs shadow-sm">⚡</span>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Quick Actions</div>
-                <div className="text-xs text-slate-500">Fast action tabs for Owner & CEO panels</div>
+          <div className="space-y-4">
+            {/* Quick Action Navigation Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 p-3.5 border border-indigo-100 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-xs shadow-sm">⚡</span>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Quick Actions</div>
+                  <div className="text-xs text-slate-500">Fast action tabs for Owner & CEO panels</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  to="/tasks/new"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+                >
+                  <PlusCircle size={15} /> Assign Task
+                </Link>
+                <Link
+                  to="/projects?new=1"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  <FolderPlus size={15} /> Assign Project
+                </Link>
+                {can("employee.manage") && (
+                  <Link
+                    to="/employees?add=1"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <UserPlus size={15} /> Add Employee
+                  </Link>
+                )}
+                {can("employee.manage") && (
+                  <Link
+                    to="/role-emails"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <span>✉️</span> Invite by Email
+                  </Link>
+                )}
+                {can("hierarchy.manage") && (
+                  <Link
+                    to="/hierarchy"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <Network size={15} /> Manage Hierarchy
+                  </Link>
+                )}
+                {can("department.manage") && (
+                  <Link
+                    to="/departments"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <Building2 size={15} /> Departments & Heads
+                  </Link>
+                )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                to="/tasks/new"
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
-              >
-                <PlusCircle size={15} /> Assign Task
-              </Link>
-              <Link
-                to="/projects?new=1"
-                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
-              >
-                <FolderPlus size={15} /> Assign Project
-              </Link>
-              {can("employee.manage") && (
-                <Link
-                  to="/role-emails"
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
-                >
-                  <UserPlus size={15} /> Invite Employee
-                </Link>
-              )}
-              {can("hierarchy.manage") && (
-                <Link
-                  to="/hierarchy"
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-800 border border-slate-300 shadow-sm hover:bg-slate-50 transition-colors"
-                >
-                  <Network size={15} /> Manage Hierarchy
-                </Link>
-              )}
+
+            {/* Executive Operations Hub */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {/* Card 1: Employees & Roles */}
+              <Card className="p-4 transition-all hover:border-indigo-300 hover:shadow-md bg-white border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Staffing</span>
+                  <div className="rounded-lg bg-indigo-50 p-2 text-indigo-600">
+                    <Users size={18} />
+                  </div>
+                </div>
+                <div className="mt-2 text-base font-bold text-slate-900">Employees & Roles</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Add team members, assign management or staff roles, and send invitations.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                  {can("employee.manage") && (
+                    <Link
+                      to="/employees?add=1"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      <UserPlus size={13} /> Add
+                    </Link>
+                  )}
+                  {can("employee.manage") && (
+                    <Link
+                      to="/role-emails"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800"
+                    >
+                      ✉️ Invite
+                    </Link>
+                  )}
+                  <Link
+                    to="/employees"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 ml-auto"
+                  >
+                    Directory →
+                  </Link>
+                </div>
+              </Card>
+
+              {/* Card 2: Org Hierarchy */}
+              <Card className="p-4 transition-all hover:border-purple-300 hover:shadow-md bg-white border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Structure</span>
+                  <div className="rounded-lg bg-purple-50 p-2 text-purple-600">
+                    <Network size={18} />
+                  </div>
+                </div>
+                <div className="mt-2 text-base font-bold text-slate-900">Org Hierarchy</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Interactive org tree, direct manager reporting lines, and cycle-free management.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                  {can("hierarchy.manage") && (
+                    <Link
+                      to="/hierarchy"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-purple-600 hover:text-purple-800"
+                    >
+                      <Network size={13} /> Manage Hierarchy →
+                    </Link>
+                  )}
+                </div>
+              </Card>
+
+              {/* Card 3: Departments & Leaders */}
+              <Card className="p-4 transition-all hover:border-emerald-300 hover:shadow-md bg-white border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Departments</span>
+                  <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
+                    <Building2 size={18} />
+                  </div>
+                </div>
+                <div className="mt-2 text-base font-bold text-slate-900">Departments & Heads</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Create departments, name Department Heads and SubHeads, and set QA testers.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                  {can("department.manage") && (
+                    <Link
+                      to="/departments?add=1"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-800"
+                    >
+                      + Add Dept
+                    </Link>
+                  )}
+                  {can("department.manage") && (
+                    <Link
+                      to="/departments"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800 ml-auto"
+                    >
+                      Set Heads →
+                    </Link>
+                  )}
+                </div>
+              </Card>
+
+              {/* Card 4: Multi-Company Operations (Owner) or Company Profile (CEO) */}
+              <Card className="p-4 transition-all hover:border-amber-300 hover:shadow-md bg-white border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    {isOwner ? "Enterprise" : "Authorized Scope"}
+                  </span>
+                  <div className="rounded-lg bg-amber-50 p-2 text-amber-600">
+                    <ShieldCheck size={18} />
+                  </div>
+                </div>
+                <div className="mt-2 text-base font-bold text-slate-900">
+                  {isOwner ? "Companies & CEOs" : "Company Scope"}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {isOwner
+                    ? "Add companies, appoint CEOs, and authorize company-specific management."
+                    : "Manage your assigned company operations, team hierarchy, and AI memory."}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                  {can("employee.manage") && (
+                    <Link
+                      to="/companies"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-900"
+                    >
+                      {isOwner ? "Manage Companies & CEOs →" : "View Company Details →"}
+                    </Link>
+                  )}
+                </div>
+              </Card>
             </div>
           </div>
         )}

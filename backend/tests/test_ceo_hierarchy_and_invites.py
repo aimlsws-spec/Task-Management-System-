@@ -116,7 +116,7 @@ def test_ceo_can_manage_hierarchy_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"employee_id": emp_c1_id, "reports_to_id": mgr_id},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
     assert "authorized companies" in r.text.lower()
 
     # 3. CEO Two CANNOT manage someone who outranks them (Owner -> 403 Forbidden)
@@ -125,7 +125,7 @@ def test_ceo_can_manage_hierarchy_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"employee_id": owner_c1_id, "reports_to_id": mgr_id},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
     assert "outranks you" in r.text.lower()
 
     # 4. CEO Two CANNOT assign a manager from an unauthorized company (Company 1) to an employee in Company 2
@@ -134,7 +134,7 @@ def test_ceo_can_manage_hierarchy_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"employee_id": dev_id, "reports_to_id": emp_c1_id},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
     assert "authorized companies" in r.text.lower()
 
     # 4. Cycle prevention: Manager Two reporting to Dev Two would create a cycle (since Dev Two reports to Manager Two)
@@ -198,7 +198,7 @@ def test_ceo_can_invite_employees_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"email": "hacker@inv.example", "role_code": "employee", "company_id": 1},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
 
     # 3. CEO CANNOT invite an Owner (rank >= CEO -> 403 Forbidden)
     r = client.post(
@@ -206,7 +206,7 @@ def test_ceo_can_invite_employees_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"email": "owner_wannabe@inv.example", "role_code": "owner", "company_id": c3_id},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
 
     # 4. CEO CANNOT invite another CEO (rank >= CEO -> 403 Forbidden)
     r = client.post(
@@ -214,7 +214,7 @@ def test_ceo_can_invite_employees_only_for_authorized_company(client, as_user, s
         headers=h_ceo,
         json={"email": "ceo_peer@inv.example", "role_code": "ceo", "company_id": c3_id},
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
 
     # 5. Owner CAN invite to any company and any role
     r = client.post(
@@ -223,3 +223,101 @@ def test_ceo_can_invite_employees_only_for_authorized_company(client, as_user, s
         json={"email": "owner_invited_ceo@inv.example", "role_code": "ceo", "company_id": c3_id},
     )
     assert r.status_code == 201
+
+
+def test_ceo_can_create_departments_and_employees_in_authorized_company(client, as_user, seeded):
+    # Setup company 4 and CEO authorized for company 4
+    with seeded() as s:
+        c4 = Company(name="Dept Co", code="dept-co", is_active=True)
+        s.add(c4)
+        s.flush()
+        d4_gen = Department(name="Dept Co General", code="GEN-4", company_id=c4.id, self_service=True)
+        s.add(d4_gen)
+        s.flush()
+
+        ceo4_user = User(email="ceo4@dept.example", password_hash=hash_password(PW), is_active=True)
+        s.add(ceo4_user)
+        s.flush()
+        ceo_role = s.scalar(select(Role).where(Role.code == "ceo"))
+        s.add(UserRole(user_id=ceo4_user.id, role_id=ceo_role.id))
+        s.add(CompanyCEO(company_id=c4.id, user_id=ceo4_user.id))
+        ceo4_emp = Employee(
+            user_id=ceo4_user.id, employee_code="EMP-CEO4", full_name="CEO Four",
+            department_id=d4_gen.id, company_id=c4.id, status="active",
+        )
+        s.add(ceo4_emp)
+        s.commit()
+        c4_id = c4.id
+        d4_gen_id = d4_gen.id
+
+    h_ceo = login(client, "ceo4@dept.example", PW)
+
+    # 1. CEO can create department for authorized company without passing company_id (auto-defaults)
+    r = client.post(
+        f"{API}/departments",
+        headers=h_ceo,
+        json={"name": "Engineering 4", "code": "ENG-4"},
+    )
+    assert r.status_code == 201
+    new_dept_id = r.json()["id"]
+    assert r.json()["company_id"] == c4_id
+
+    # 2. CEO CANNOT create department in unauthorized company 1
+    r = client.post(
+        f"{API}/departments",
+        headers=h_ceo,
+        json={"name": "Hacked Dept", "code": "HACK-1", "company_id": 1},
+    )
+    assert r.status_code == 403, r.text
+
+    # 3. CEO can create an employee in authorized company and assign 'manager' role
+    r = client.post(
+        f"{API}/employees",
+        headers=h_ceo,
+        json={
+            "email": "mgr4@dept.example",
+            "full_name": "Manager Four",
+            "department_id": new_dept_id,
+            "company_id": c4_id,
+            "temp_password": PW,
+            "role_codes": ["manager"],
+        },
+    )
+    assert r.status_code == 201
+    new_emp_id = r.json()["id"]
+
+    # 4. CEO CANNOT assign 'ceo' or 'owner' role to a newly created employee (rank >= CEO)
+    r = client.post(
+        f"{API}/employees",
+        headers=h_ceo,
+        json={
+            "email": "rogue_ceo@dept.example",
+            "full_name": "Rogue CEO",
+            "department_id": new_dept_id,
+            "company_id": c4_id,
+            "temp_password": PW,
+            "role_codes": ["ceo"],
+        },
+    )
+    assert r.status_code == 403, r.text
+
+    # 5. CEO can set department leaders (Head and SubHead) in authorized company
+    r = client.put(
+        f"{API}/departments/{new_dept_id}/leaders",
+        headers=h_ceo,
+        json={"head_employee_ids": [new_emp_id], "sub_head_employee_ids": []},
+    )
+    assert r.status_code == 200
+
+    # 6. CEO CANNOT set leaders on a department in unauthorized company 1
+    with seeded() as s:
+        dept_c1 = s.scalar(select(Department).where(Department.company_id == 1))
+        dept_c1_id = dept_c1.id
+
+    r = client.put(
+        f"{API}/departments/{dept_c1_id}/leaders",
+        headers=h_ceo,
+        json={"head_employee_ids": [new_emp_id], "sub_head_employee_ids": []},
+    )
+    assert r.status_code == 403, r.text
+

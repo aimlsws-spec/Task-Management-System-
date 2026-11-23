@@ -5,7 +5,7 @@ from pydantic import EmailStr, Field
 from sqlalchemy import select
 
 from app.core.deps import get_principal, require
-from app.core.errors import NotFound
+from app.core.errors import Forbidden, NotFound
 from app.core.schemas import Strict
 from app.modules.audit import service as audit
 from app.modules.org import admin_service, invites, service
@@ -81,19 +81,37 @@ def _dept(db, d: Department) -> dict:
 def list_departments(company_id: int | None = None, p: Principal = Depends(get_principal)):
     # Department names are not sensitive and every user needs them for pickers/filters.
     q = select(Department).order_by(Department.name)
-    if company_id is not None:
-        q = q.where(Department.company_id == company_id)
+    cids = p.company_ids()
+    if cids is not None:
+        if company_id is not None and company_id not in cids:
+            return []
+        from app.modules.org.models import DepartmentCompany
+        dept_ids_in_allowed = select(DepartmentCompany.department_id).where(DepartmentCompany.company_id.in_(cids))
+        q = q.where((Department.company_id.in_(cids)) | (Department.id.in_(dept_ids_in_allowed)) | (Department.company_id.is_(None)))
+    elif company_id is not None:
+        from app.modules.org.models import DepartmentCompany
+        dept_ids_in_co = select(DepartmentCompany.department_id).where(DepartmentCompany.company_id == company_id)
+        q = q.where((Department.company_id == company_id) | (Department.id.in_(dept_ids_in_co)) | (Department.company_id.is_(None)))
     return [_dept(p.db, d) for d in p.db.scalars(q)]
 
 
 @router.post("/departments", status_code=201)
 def create_department(body: DepartmentIn, request: Request, p: Principal = Depends(require("department.manage"))):
-    return _dept(p.db, service.create_department(p.db, p, body.name, body.code, body.parent_id, request, company_id=body.company_id or 1))
+    cid = body.company_id
+    if cid is None:
+        cids = p.company_ids()
+        if cids is not None:
+            cid = next(iter(cids)) if cids else 1
+        else:
+            cid = 1
+    return _dept(p.db, service.create_department(p.db, p, body.name, body.code, body.parent_id, request, company_id=cid))
 
 
 @router.patch("/departments/{dept_id}")
 def update_department(dept_id: int, body: DepartmentPatch, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
+    if not p.can_access_company(getattr(d, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     data = body.model_dump(exclude_unset=True)
     before = {k: getattr(d, k) for k in data}
     for k, v in data.items():
@@ -105,6 +123,8 @@ def update_department(dept_id: int, body: DepartmentPatch, request: Request, p: 
 @router.put("/departments/{dept_id}/head")
 def set_head(dept_id: int, body: HeadIn, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
+    if not p.can_access_company(getattr(d, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     moved = service.set_department_head(p.db, p, d, body.head_employee_id, request, regroup=body.regroup_members)
     return {**_dept(p.db, d), "members_moved": moved}
 
@@ -112,6 +132,8 @@ def set_head(dept_id: int, body: HeadIn, request: Request, p: Principal = Depend
 @router.put("/departments/{dept_id}/subhead")
 def set_subhead(dept_id: int, body: SubHeadIn, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
+    if not p.can_access_company(getattr(d, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     service.set_department_sub_head(p.db, p, d, body.sub_head_employee_id, request)
     return _dept(p.db, d)
 
@@ -119,6 +141,8 @@ def set_subhead(dept_id: int, body: SubHeadIn, request: Request, p: Principal = 
 @router.put("/departments/{dept_id}/leaders")
 def set_department_leaders(dept_id: int, body: DepartmentLeadersIn, request: Request, p: Principal = Depends(require("department.manage"))):
     d = _or_404(p.db.get(Department, dept_id), "Department")
+    if not p.can_access_company(getattr(d, "company_id", 1)):
+        raise Forbidden("You cannot manage departments for this company")
     service.set_department_leaders(p.db, p, d, body.head_employee_ids, body.sub_head_employee_ids, request)
     return _dept(p.db, d)
 

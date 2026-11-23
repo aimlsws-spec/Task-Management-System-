@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { Network, Users } from "lucide-react";
+import { useState, useEffect, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -26,6 +28,9 @@ type Emp = { id: number; full_name: string; is_active: boolean };
 export function Departments() {
   const qc = useQueryClient();
   const { can } = useAuth();
+  const [params] = useSearchParams();
+  const isAdding = params.get("add") === "1";
+
   const depts = useQuery({ queryKey: ["departments"], queryFn: () => api<Dept[]>("/departments") });
   const companies = useQuery({ queryKey: ["companies"], queryFn: () => api<Array<{ id: number; name: string; code: string }>>("/companies") });
   const emps = useQuery({ queryKey: ["employees", "all"], queryFn: () => api<{ items: Emp[] }>("/employees", { params: { page_size: 200 } }), enabled: can("employee.view") });
@@ -38,6 +43,12 @@ export function Departments() {
   const [managingLeaders, setManagingLeaders] = useState<Dept | null>(null);
   const [notice, setNotice] = useState("");
 
+  useEffect(() => {
+    if (companies.data && companies.data.length > 0 && !selectedCompanyId) {
+      setSelectedCompanyId(String(companies.data[0].id));
+    }
+  }, [companies.data, selectedCompanyId]);
+
   const refresh = () => { qc.invalidateQueries({ queryKey: ["departments"] }); qc.invalidateQueries({ queryKey: ["employees"] }); qc.invalidateQueries({ queryKey: ["hierarchy"] }); };
   const create = useMutation({
     mutationFn: () => api("/departments", {
@@ -47,7 +58,7 @@ export function Departments() {
         company_id: selectedCompanyId ? Number(selectedCompanyId) : null,
       },
     }),
-    onSuccess: () => { setName(""); setCode(""); setSelectedCompanyId(""); refresh(); },
+    onSuccess: () => { setName(""); setCode(""); refresh(); },
   });
   const patch = useMutation({ mutationFn: (v: { id: number; body: Record<string, unknown> }) => api(`/departments/${v.id}`, { method: "PATCH", body: v.body }), onSuccess: () => { setEditing(null); refresh(); } });
   const del = useMutation({ mutationFn: (id: number) => api(`/departments/${id}`, { method: "DELETE" }), onSuccess: refresh });
@@ -68,30 +79,49 @@ export function Departments() {
 
   return (
     <>
-      <PageHeader title="Departments" subtitle="Choosing a head also gives that person the Department Head role (they sign in again to use it). Departments without a head are managed by the Manager. A department's QA tester tests its finished work first; its head reviews next; then the CEO or Owner." />
-      <Card className="mb-5 p-5">
+      <PageHeader
+        title="Departments & Leadership"
+        subtitle="Manage departments, appoint Department Heads and SubHeads, and configure QA reviewers."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/hierarchy"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              <Network size={15} /> View Hierarchy
+            </Link>
+            <Link
+              to="/employees"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              <Users size={15} /> Employees Directory
+            </Link>
+          </div>
+        }
+      />
+      <Card className={`mb-5 p-5 transition-all ${isAdding ? "border-indigo-400 bg-indigo-50/20 shadow-md ring-2 ring-indigo-100" : ""}`}>
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">Create New Department</h2>
         <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-          <Field label="Name"><Input required value={name} onChange={(e) => setName(e.target.value)} /></Field>
-          <Field label="Code"><Input required pattern="[A-Za-z0-9_-]+" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
+          <Field label="Department Name"><Input required placeholder="e.g. Quality Assurance" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Department Code"><Input required pattern="[A-Za-z0-9_-]+" placeholder="e.g. QA-ENG" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
           {companies.data && companies.data.length > 0 && (
             <Field label="Company">
-              <Select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)}>
-                <option value="">Default Company</option>
+              <Select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className="w-52">
                 {companies.data.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.code})
+                    {c.name} ({c.code.toUpperCase()})
                   </option>
                 ))}
               </Select>
             </Field>
           )}
-          <Button type="submit" disabled={create.isPending}>Add department</Button>
+          <Button type="submit" disabled={create.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">Add department</Button>
         </form>
-        <label className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+        <label className="mt-4 flex items-center gap-2 text-xs text-slate-600">
           <input type="checkbox" checked={regroup} onChange={(e) => setRegroup(e.target.checked)} />
-          When I change a department head, move that department's members under the new head
+          When changing a department head, automatically move existing members under the new head
         </label>
-        {notice && <p className="mt-2 text-sm text-green-700">{notice}</p>}
+        {notice && <p className="mt-2 text-xs text-green-700">{notice}</p>}
         <div className="mt-3"><ErrorNote error={err} /></div>
       </Card>
 
