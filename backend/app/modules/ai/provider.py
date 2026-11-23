@@ -134,8 +134,10 @@ def _build_prompt(
     return system_prompt, user_prompt
 
 
-def _parse_llm_json(raw_text: str) -> dict[str, str] | None:
+def _parse_llm_json(raw_text: str | None) -> dict[str, str] | None:
     """Safely extracts JSON from LLM output even if surrounded by markdown code blocks."""
+    if not raw_text or not isinstance(raw_text, str):
+        return None
     text = raw_text.strip()
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
@@ -163,12 +165,17 @@ def call_gemini_api(
     system_prompt: str,
     user_prompt: str,
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.5-flash",
 ) -> dict[str, str] | None:
     """Call Google Gemini Free API directly."""
     if not api_key:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    # Try configured model, fallback to gemini-3-flash-preview
+    models_to_try = [model]
+    if "gemini-3-flash-preview" not in models_to_try:
+        models_to_try.append("gemini-3-flash-preview")
+
     payload = {
         "contents": [
             {
@@ -179,23 +186,28 @@ def call_gemini_api(
         "generationConfig": {
             "responseMimeType": "application/json",
             "temperature": 0.3,
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 2048,
         },
     }
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.post(url, json=payload)
-            if resp.status_code == 200:
-                body = resp.json()
-                candidates = body.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return _parse_llm_json(parts[0].get("text", ""))
-            else:
-                log.warning("Gemini API error status %s: %s", resp.status_code, resp.text[:200])
-    except Exception as e:
-        log.warning("Gemini API request failed: %s", e)
+
+    for m in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+        try:
+            with httpx.Client(timeout=12.0) as client:
+                resp = client.post(url, json=payload)
+                if resp.status_code == 200:
+                    body = resp.json()
+                    candidates = body.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            res = _parse_llm_json(parts[0].get("text", ""))
+                            if res:
+                                return res
+                else:
+                    log.warning("Gemini API (%s) error %s: %s", m, resp.status_code, resp.text[:150])
+        except Exception as e:
+            log.warning("Gemini API (%s) request failed: %s", m, e)
     return None
 
 
@@ -211,10 +223,9 @@ def call_openrouter_api(
     models = [m.strip() for m in models_csv.split(",") if m.strip()]
     if not models:
         models = [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "google/gemini-2.0-flash-exp:free",
-            "qwen/qwen-2.5-72b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
+            "openrouter/free",
+            "google/gemma-4-26b-a4b-it:free",
+            "nvidia/nemotron-3.5-lightning:free",
         ]
 
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -232,17 +243,18 @@ def call_openrouter_api(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
     }
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=12.0) as client:
             resp = client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
                 body = resp.json()
                 choices = body.get("choices", [])
                 if choices:
-                    content = choices[0].get("message", {}).get("content", "")
-                    return _parse_llm_json(content)
+                    content = choices[0].get("message", {}).get("content")
+                    if content:
+                        return _parse_llm_json(content)
             else:
                 log.warning("OpenRouter error status %s: %s", resp.status_code, resp.text[:200])
     except Exception as e:

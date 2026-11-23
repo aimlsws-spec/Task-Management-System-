@@ -63,8 +63,8 @@ class Settings(BaseSettings):
     # AI Assistant (Zero-cost dual cloud engine: Google Gemini Free + OpenRouter Free Pool + Heuristics)
     gemini_api_key: str = ""
     openrouter_api_key: str = ""
-    ai_gemini_model: str = "gemini-2.0-flash"
-    ai_openrouter_models: str = "meta-llama/llama-3.3-70b-instruct:free,google/gemini-2.0-flash-exp:free,qwen/qwen-2.5-72b-instruct:free,meta-llama/llama-3.1-8b-instruct:free"
+    ai_gemini_model: str = "gemini-3.5-flash"
+    ai_openrouter_models: str = "openrouter/free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3.5-lightning:free"
     ai_provider: str = "auto"  # auto | gemini | openrouter | heuristic
 
 
