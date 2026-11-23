@@ -174,8 +174,25 @@ export function Dashboard() {
                 )}
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Executive Operations Hub */}
+        <ReviewWaiting />
+        {can("task.assign") && <Attention />}
+        {me?.permissions["task.view"] !== "self" && <OverviewPanel />}
+        <MyDay />
+
+        {/* Executive Management Section: Hub Cards & Live Hierarchy at end of Dashboard */}
+        {isLeadership && (
+          <div className="space-y-5 pt-6 border-t border-slate-200/90">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                {isOwner ? "Owner Operations & Organization Structure" : "CEO Operations & Organization Structure"}
+              </span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            {/* Executive Operations Hub Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {/* Card 1: Employees & Roles */}
               <Card className="p-4 transition-all hover:border-indigo-300 hover:shadow-md bg-white border border-slate-200/80">
@@ -393,10 +410,6 @@ export function Dashboard() {
             </Card>
           </div>
         )}
-        <ReviewWaiting />
-        {can("task.assign") && <Attention />}
-        {me?.permissions["task.view"] !== "self" && <OverviewPanel />}
-        <MyDay />
       </div>
     </>
   );
