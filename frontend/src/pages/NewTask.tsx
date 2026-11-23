@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 type Meta = {
   categories: { id: number; name: string }[];
   types: { id: number; name: string; requires_review: boolean }[];
-  projects: { id: number; code: string; name: string }[];
+  projects: { id: number; code: string; name: string; company_id?: number }[];
 };
 
 /** Pick a person from the list (with their current load), then describe and assign the task. */
@@ -20,6 +20,8 @@ export function NewTask() {
   const { me } = useAuth();
   const [sp] = useSearchParams();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const companies = useQuery({ queryKey: ["companies"], queryFn: () => api<{ id: number; name: string; code: string }[]>("/companies") });
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [assignee, setAssignee] = useState<number | null>(sp.get("assignee") ? Number(sp.get("assignee")) : null);
   const [search, setSearch] = useState("");
   const [headSearch, setHeadSearch] = useState("");
@@ -30,15 +32,26 @@ export function NewTask() {
     title: "", description: "", instructions: "", priority: "medium", due_date: "", start_date: today,
     project_id: sp.get("project_id") || "", category_id: "", type_id: "",
   });
-  const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload") });
-  const meta = useQuery({ queryKey: ["task-meta"], queryFn: () => api<Meta>("/task-meta") });
+
+  const meta = useQuery({
+    queryKey: ["task-meta", selectedCompanyId],
+    queryFn: () => api<Meta>("/task-meta", { params: { company_id: selectedCompanyId || undefined } }),
+  });
+
+  const selectedProj = meta.data?.projects.find((p) => String(p.id) === f.project_id);
+  const effectiveCompanyId = selectedProj?.company_id ? String(selectedProj.company_id) : selectedCompanyId;
+
+  const people = useQuery({
+    queryKey: ["workload", effectiveCompanyId],
+    queryFn: () => api<Workload[]>("/workload", { params: { company_id: effectiveCompanyId || undefined } }),
+  });
   const chosen = people.data?.find((p) => p.employee_id === assignee);
   const theirTasks = useQuery({
     queryKey: ["tasks", "of", assignee],
     queryFn: () => api<TaskPage>("/tasks", { params: { assignee_id: assignee, open: "true", page_size: 8 } }),
     enabled: assignee !== null,
   });
-  const everyone = useEmployees();
+  const everyone = useEmployees(effectiveCompanyId || null);
   const loopPeople = useMemo(() => {
     const seen = new Map<number, { id: number; full_name: string; job_title: string | null }>();
     for (const e of everyone.data ?? []) seen.set(e.id, e);
@@ -72,6 +85,7 @@ export function NewTask() {
       api<{ task: Task; warnings: string[] }>("/tasks", {
         body: {
           title: f.title, description: f.description, instructions: f.instructions || null, special_note: f.instructions || null, assignee_id: assignee,
+          company_id: effectiveCompanyId ? Number(effectiveCompanyId) : undefined,
           priority: f.priority, due_date: f.due_date || null, start_date: f.start_date || today,
           project_id: f.project_id ? Number(f.project_id) : null,
           category_id: f.category_id ? Number(f.category_id) : null, type_id: f.type_id ? Number(f.type_id) : null,
@@ -93,6 +107,27 @@ export function NewTask() {
       <div className="grid gap-5 lg:grid-cols-[22rem_1fr]">
         {/* 1. People */}
         <Card className="h-fit p-3">
+          {companies.data && companies.data.length > 1 && (
+            <div className="mb-2.5 pb-2 border-b border-slate-100">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400 block mb-1">Company</label>
+              <Select
+                value={selectedCompanyId}
+                onChange={(e) => {
+                  setSelectedCompanyId(e.target.value);
+                  setAssignee(null);
+                  setSelectedHeads([]);
+                  setSelectedQAs([]);
+                }}
+              >
+                <option value="">All / Default Company</option>
+                {companies.data.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.code})
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <div className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">1 · Assign to</div>
           <Input placeholder="Search people" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="mt-2 max-h-[34rem] space-y-1.5 overflow-y-auto pr-1">
@@ -160,7 +195,26 @@ export function NewTask() {
               <Field label={f.project_id ? "Deadline date (optional — inherits project deadline)" : "Deadline date"}><Input required={!f.project_id} type="date" value={f.due_date} onChange={set("due_date")} /></Field>
               <Field label="Start date (defaults to today, editable)"><Input type="date" value={f.start_date} onChange={set("start_date")} /></Field>
               <Field label="Project (optional)">
-                <Select value={f.project_id} onChange={set("project_id")}><option value="">None</option>{meta.data?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
+                <Select
+                  value={f.project_id}
+                  onChange={(e) => {
+                    const pid = e.target.value;
+                    setF({ ...f, project_id: pid });
+                    if (pid) {
+                      const pr = meta.data?.projects.find((x) => String(x.id) === pid);
+                      if (pr?.company_id) {
+                        setSelectedCompanyId(String(pr.company_id));
+                      }
+                    }
+                  }}
+                >
+                  <option value="">None</option>
+                  {meta.data?.projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      [{p.code}] {p.name}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Category">
                 <Select value={f.category_id} onChange={set("category_id")}><option value="">None</option>{meta.data?.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>

@@ -83,6 +83,11 @@ export function ProjectDetail() {
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        {d.company && (
+          <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200">
+            {d.company.name} ({d.company.code})
+          </span>
+        )}
         <PriorityChip priority={d.priority || "medium"} />
         <Badge tone={STATUS_TONE[d.status] ?? "grey"}>{d.status.replace("_", " ")}</Badge>
         {d.ready_for_review && <Badge tone="purple">Ready for review</Badge>}

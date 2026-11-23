@@ -333,9 +333,9 @@ def task_time(task_id: int, p: Principal = Depends(require("task.view"))):
 
 
 @router.get("/workload")
-def workload(p: Principal = Depends(require("task.assign"))):
+def workload(company_id: int | None = None, p: Principal = Depends(require("task.assign"))):
     """People you can assign to, with their current load. Powers the assignee picker and the workload view."""
-    return service.workload(p.db, p)
+    return service.workload(p.db, p, company_id=company_id)
 
 
 # ---------------------------------------------------------------- attachments
@@ -363,13 +363,18 @@ def download(att_id: int, p: Principal = Depends(require("task.view"))):
 
 
 @router.get("/task-meta")
-def task_meta(p: Principal = Depends(get_principal)):
+def task_meta(company_id: int | None = None, p: Principal = Depends(get_principal)):
     """Everything the create-task form needs besides the people list (which comes from /workload)."""
     db = p.db
+    from app.modules.tasks import projects as proj
+    allowed_projects = []
+    for x in db.scalars(select(Project).where(Project.status == "active").order_by(Project.name)):
+        if (company_id is None or getattr(x, "company_id", 1) == company_id) and p.can_access_company(getattr(x, "company_id", 1)) and proj.can_view(db, p, x):
+            allowed_projects.append({"id": x.id, "code": x.code, "name": x.name, "company_id": getattr(x, "company_id", 1)})
     return {
         "priorities": list(PRIORITIES),
         "categories": [{"id": c.id, "name": c.name} for c in db.scalars(select(TaskCategory).where(TaskCategory.is_active.is_(True)).order_by(TaskCategory.name))],
         "types": [{"id": t.id, "name": t.name, "requires_review": t.requires_review} for t in db.scalars(select(TaskType).where(TaskType.is_active.is_(True)).order_by(TaskType.name))],
-        "projects": [{"id": x.id, "code": x.code, "name": x.name} for x in db.scalars(select(Project).where(Project.status == "active").order_by(Project.name))],
+        "projects": allowed_projects,
     }
 

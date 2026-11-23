@@ -20,13 +20,18 @@ export function Tasks() {
   const isAssigner = can("task.assign");
   const tz = me?.user.timezone;
 
-  const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload"), enabled: isAssigner });
+  const companies = useQuery({ queryKey: ["companies"], queryFn: () => api<{ id: number; name: string; code: string }[]>("/companies") });
+  const people = useQuery({
+    queryKey: ["workload", get("company_id")],
+    queryFn: () => api<Workload[]>("/workload", { params: { company_id: get("company_id") || undefined } }),
+    enabled: isAssigner,
+  });
   const tasks = useQuery({
     queryKey: ["tasks", sp.toString()],
     refetchInterval: 6000,
     queryFn: () =>
       api<TaskPage>("/tasks", {
-        params: { status: get("status"), priority: get("priority"), assignee_id: get("assignee_id"), q: get("q"), page, page_size: 25,
+        params: { status: get("status"), priority: get("priority"), assignee_id: get("assignee_id"), company_id: get("company_id") || undefined, q: get("q"), page, page_size: 25,
                   overdue: get("overdue") || undefined, open: get("open") || undefined, awaiting_my_review: get("awaiting_my_review") || undefined },
       }),
   });
@@ -41,6 +46,12 @@ export function Tasks() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input className="sm:max-w-56" placeholder="Search tasks..." value={get("q")} onChange={(e) => set("q", e.target.value)} />
+        {companies.data && companies.data.length > 1 && (
+          <Select className="sm:max-w-44" value={get("company_id")} onChange={(e) => set("company_id", e.target.value)}>
+            <option value="">All companies</option>
+            {companies.data.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+          </Select>
+        )}
         <Select className="sm:max-w-40" value={get("status")} onChange={(e) => set("status", e.target.value)}>
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -69,7 +80,7 @@ export function Tasks() {
                     <div className="min-w-0 font-medium">{t.title}</div>
                     <PriorityChip priority={t.priority} />
                   </div>
-                  <div className="text-xs text-slate-500">{t.task_no} · by {t.assigned_by.full_name}{!self && <> · {t.assignee.full_name}</>}</div>
+                  <div className="text-xs text-slate-500">{t.task_no}{t.company ? ` · [${t.company.code || t.company.name}]` : ""} · by {t.assigned_by.full_name}{!self && <> · {t.assignee.full_name}</>}</div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={t.status} />{t.is_overdue && <OverdueBadge />}{t.explanation_required && <Badge tone="red">Explanation needed</Badge>}{!self && <EscalationBadge level={t.escalation_level} />}
                     <span className="ml-auto text-xs text-slate-600">Due {fmtDay(t.due_at, tz)}</span>
@@ -86,7 +97,17 @@ export function Tasks() {
             <tbody>
               {tasks.data?.items.map((t) => (
                 <tr key={t.id} onClick={() => nav(`/tasks/${t.id}`)} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="p-3"><div className="font-medium">{t.title}</div><div className="text-xs text-slate-500">{t.task_no} · by {t.assigned_by.full_name}</div></td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{t.title}</span>
+                      {t.company && (
+                        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 border border-indigo-200">
+                          {t.company.code || t.company.name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500">{t.task_no} · by {t.assigned_by.full_name}</div>
+                  </td>
                   {!self && <td className="p-3"><div>{t.assignee.full_name}</div><div className="text-xs text-slate-500">{t.assignee.job_title}</div></td>}
                   <td className="p-3"><PriorityChip priority={t.priority} /></td>
                   <td className="p-3"><div className="flex flex-wrap gap-1"><StatusBadge status={t.status} />{t.is_overdue && <OverdueBadge />}{t.explanation_required && <Badge tone="red">Explanation needed</Badge>}{!self && <EscalationBadge level={t.escalation_level} />}</div></td>

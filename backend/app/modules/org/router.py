@@ -166,6 +166,7 @@ class EmployeeIn(Strict):
     full_name: str = Field(min_length=2, max_length=150)
     employee_code: str | None = Field(None, max_length=30)  # empty = a unique letters+digits ID is generated (ADR 008)
     department_id: int
+    company_id: int | None = None
     job_title: str | None = Field(None, max_length=100)
     phone: str | None = Field(None, max_length=30)
     joined_on: date | None = None
@@ -179,6 +180,7 @@ class EmployeePatch(Strict):
     job_title: str | None = Field(None, max_length=100)
     phone: str | None = Field(None, max_length=30)
     department_id: int | None = None
+    company_id: int | None = None
     daily_capacity_hours: float | None = Field(None, gt=0, le=16)
     can_receive_tasks: bool | None = None
     status: str | None = Field(None, pattern=r"^(active|on_leave)$")

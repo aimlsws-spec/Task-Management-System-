@@ -639,3 +639,131 @@ def test_owner_and_ceo_create_departments_later(client, as_user, seeded):
     assert "D_MKT" in dept_codes
     assert "D_PROD" in dept_codes
 
+
+def test_login_persistence_and_refresh_token(client, monkeypatch, seeded):
+    from tests.conftest import PASSWORD
+    from tests.test_auth import _enable_multi
+    # 1. In default cookie mode: login sets httpOnly cookie with max_age
+    r = client.post(f"{API}/auth/login", json={"email": "owner@demo.example.com", "password": PASSWORD})
+    assert r.status_code == 200
+    assert "access_token" in r.json()
+    assert client.cookies.get("tms_refresh")
+
+    # Refresh via cookie
+    r_ref = client.post(f"{API}/auth/refresh", headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r_ref.status_code == 200
+    assert "access_token" in r_ref.json()
+
+    # 2. In multi-session dev mode: login returns refresh_token in JSON body
+    _enable_multi(monkeypatch)
+    r2 = client.post(f"{API}/auth/login", json={"email": "owner@demo.example.com", "password": PASSWORD})
+    assert r2.status_code == 200
+    data2 = r2.json()
+    assert "refresh_token" in data2
+    rt = data2["refresh_token"]
+
+    # Refresh via JSON body
+    r2_ref = client.post(
+        f"{API}/auth/refresh",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+        json={"refresh_token": rt},
+    )
+    assert r2_ref.status_code == 200
+    assert "access_token" in r2_ref.json()
+    assert "refresh_token" in r2_ref.json()
+
+
+def test_company_specific_work_isolation(client, as_user, seeded):
+    # 1. Owner creates Company Gamma
+    r_comp = client.post(f"{API}/companies", headers=as_user("owner"), json={"name": "Gamma Corp", "code": "GAMMA"})
+    assert r_comp.status_code == 201
+    gamma_id = r_comp.json()["id"]
+
+    # 2. Create department and employee belonging exclusively to Gamma Corp
+    r_dept = client.post(f"{API}/departments", headers=as_user("owner"), json={"name": "Gamma Tech", "code": "GTECH", "company_id": gamma_id})
+    assert r_dept.status_code == 201
+    gdept_id = r_dept.json()["id"]
+
+    from tests.conftest import PASSWORD
+    r_emp = client.post(f"{API}/employees", headers=as_user("owner"), json={
+        "email": "gamma_dev@example.com",
+        "full_name": "Gamma Developer",
+        "department_id": gdept_id,
+        "company_id": gamma_id,
+        "job_title": "Developer",
+        "temp_password": PASSWORD,
+        "role_codes": ["employee"],
+    })
+    assert r_emp.status_code == 201
+    gamma_emp_id = r_emp.json()["id"]
+    assert r_emp.json()["company_id"] == gamma_id
+
+    fe_id = eid(seeded, FE)  # belonging to default company 1
+
+    # 3. Trying to create a task in default company (company_id=1) assigned to Gamma employee is rejected
+    r_t_fail = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Cross company task",
+        "description": "Should fail",
+        "company_id": 1,
+        "due_date": str(date.today() + timedelta(days=5)),
+        "assignee_id": gamma_emp_id,
+    })
+    assert r_t_fail.status_code == 403
+    assert "does not belong" in r_t_fail.json()["message"]
+
+    # 4. Trying to create a project in default company with Gamma employee in members is rejected
+    r_p_fail = client.post(f"{API}/projects", headers=as_user("owner"), json={
+        "name": "Default Project",
+        "company_id": 1,
+        "ends_on": str(date.today() + timedelta(days=10)),
+        "member_ids": [gamma_emp_id],
+    })
+    assert r_p_fail.status_code == 403
+    assert "does not belong" in r_p_fail.json()["message"]
+
+    # 5. Creating a project in Gamma Corp with Gamma employee succeeds
+    r_p_ok = client.post(f"{API}/projects", headers=as_user("owner"), json={
+        "name": "Gamma Cloud Platform",
+        "company_id": gamma_id,
+        "ends_on": str(date.today() + timedelta(days=14)),
+        "assignee_id": gamma_emp_id,
+        "member_ids": [gamma_emp_id],
+    })
+    assert r_p_ok.status_code == 201
+    gamma_pr_id = r_p_ok.json()["id"]
+    assert r_p_ok.json()["company"]["id"] == gamma_id
+    assert r_p_ok.json()["company"]["code"] == "gamma"
+
+    # 6. Task created inside Gamma project automatically inherits Gamma company
+    r_t_ok = client.post(f"{API}/tasks", headers=as_user("owner"), json={
+        "title": "Setup Gamma Infrastructure",
+        "description": "Project task inheriting company",
+        "project_id": gamma_pr_id,
+        "assignee_id": gamma_emp_id,
+    })
+    assert r_t_ok.status_code == 201
+    task_data = r_t_ok.json()["task"]
+    assert task_data["company_id"] == gamma_id
+    assert task_data["company"]["id"] == gamma_id
+    assert task_data["company"]["code"] == "gamma"
+    gamma_task_id = task_data["id"]
+
+    # 7. Reassigning Gamma task to an employee of another company is rejected
+    r_reassign_fail = client.post(
+        f"{API}/tasks/{gamma_task_id}/reassign",
+        headers=as_user("owner"),
+        json={"assignee_id": fe_id, "reason": "Attempting cross-company transfer"},
+    )
+    assert r_reassign_fail.status_code == 403
+    assert "does not belong" in r_reassign_fail.json()["message"]
+
+    # 8. Workload query filtered by company_id
+    gamma_workload = client.get(f"{API}/workload?company_id={gamma_id}", headers=as_user("owner")).json()
+    emp_ids_in_gamma = [w["employee_id"] for w in gamma_workload]
+    assert gamma_emp_id in emp_ids_in_gamma
+    assert fe_id not in emp_ids_in_gamma
+
+    # 9. Clean up
+    client.delete(f"{API}/projects/{gamma_pr_id}", headers=as_user("owner"))
+
+

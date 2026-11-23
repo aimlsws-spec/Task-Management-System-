@@ -109,15 +109,15 @@ class Principal:
         """None = all companies (Owner, Admin). Set of IDs = authorized companies (CEO, or employee's company)."""
         if "owner" in self.roles or "admin" in self.roles:
             return None
-        from app.modules.org.models import CompanyCEO
+        from app.modules.org.models import CompanyCEO, EmployeeCompany
+        cids = set()
         if "ceo" in self.roles:
-            cids = set(self.db.scalars(select(CompanyCEO.company_id).where(CompanyCEO.user_id == self.user.id)))
-            if self.employee and getattr(self.employee, "company_id", None):
+            cids |= set(self.db.scalars(select(CompanyCEO.company_id).where(CompanyCEO.user_id == self.user.id)))
+        if self.employee:
+            if getattr(self.employee, "company_id", None):
                 cids.add(self.employee.company_id)
-            return cids
-        if self.employee and getattr(self.employee, "company_id", None):
-            return {self.employee.company_id}
-        return set()
+            cids |= set(self.db.scalars(select(EmployeeCompany.company_id).where(EmployeeCompany.employee_id == self.employee.id)))
+        return cids
 
     def can_access_company(self, company_id: int) -> bool:
         cids = self.company_ids()

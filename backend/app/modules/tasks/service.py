@@ -222,9 +222,13 @@ def task_dict(db: Session, t: Task, assignee: Employee | None = None, assigner: 
     now = clock.utcnow()
     assignee = assignee or db.get(Employee, t.assignee_id)
     assigner = assigner or db.get(Employee, t.assigned_by_id)
+    from app.modules.org.models import Company
+    comp = db.get(Company, getattr(t, "company_id", 1)) if getattr(t, "company_id", None) else None
+    company_obj = {"id": comp.id, "name": comp.name, "code": comp.code} if comp else None
     out = {
         "id": t.id, "task_no": t.task_no, "title": t.title, "status": t.status, "priority": t.priority,
         "company_id": getattr(t, "company_id", 1),
+        "company": company_obj,
         "assignee": _person(assignee), "assigned_by": _person(assigner), "department_id": t.department_id,
         "head": _person(db.get(Employee, loop.head_id(db, t))) if loop.head_id(db, t) else None,
         "sub_head": _person(db.get(Employee, loop.sub_head_id(db, t))) if loop.sub_head_id(db, t) else None,
@@ -363,16 +367,25 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
     if start_date > due_date:
         raise AppError("INVALID_START_DATE", "Start date cannot be after the deadline", 422)
 
-    company_id = d.get("company_id") or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else getattr(assignee, "company_id", 1))
-    if not p.can_access_company(company_id):
-        raise Forbidden("You cannot create tasks for this company")
-
     for model, key, label in ((Project, "project_id", "Project"), (TaskCategory, "category_id", "Category"), (TaskType, "type_id", "Type")):
         if d.get(key) is not None and db.get(model, d[key]) is None:
             raise AppError("INVALID_REFERENCE", f"{label} not found", 422)
     from app.modules.tasks import projects as proj  # imported here: projects builds on this module
 
     project = proj.assert_can_take_task(db, d["project_id"], assignee.id) if d.get("project_id") else None
+
+    if project:
+        company_id = getattr(project, "company_id", 1)
+    else:
+        company_id = d.get("company_id") or (p.employee.company_id if p.employee and getattr(p.employee, "company_id", None) else getattr(assignee, "company_id", 1))
+
+    if not p.can_access_company(company_id):
+        raise Forbidden("You cannot create tasks for this company")
+
+    from app.modules.org import models as org_models
+    assignee_cids = org_models.employee_company_ids(db, assignee)
+    if assignee_cids is not None and company_id not in assignee_cids:
+        raise Forbidden(f"Assignee '{assignee.full_name}' does not belong to the selected company")
     head_ids = d.get("head_employee_ids")
     head_id = d.get("head_employee_id")
     sub_head_id = d.get("sub_head_employee_id")
@@ -405,12 +418,18 @@ def create_task(db: Session, p: Principal, d: dict, request: Request) -> tuple[T
     elif not head_ids and (head_id or sub_head_id):
         head_ids = [h for h in (head_id, sub_head_id) if h]
 
-    for val, what in ((head_id, "head"), (sub_head_id, "sub-head"), (qa_id, "QA")):
-        if val is not None:
-            proj.check_person(db, val, what)
-    if head_ids:
-        for hid in head_ids:
-            proj.check_person(db, hid, "head")
+    def _assert_task_emp_company(emp_id: int | None, role_name: str):
+        if not emp_id:
+            return
+        emp = proj.check_person(db, emp_id, role_name)
+        cids = org_models.employee_company_ids(db, emp)
+        if cids is not None and company_id not in cids:
+            raise Forbidden(f"{role_name.capitalize()} '{emp.full_name}' does not belong to the task's company")
+
+    for hid in (head_ids or []):
+        _assert_task_emp_company(hid, "head")
+    for qid in (qa_ids or []):
+        _assert_task_emp_company(qid, "QA")
 
     creator_emp_id = p.employee.id if p.employee else assignee.id
     ttype = db.get(TaskType, d["type_id"]) if d.get("type_id") else None
@@ -461,10 +480,38 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
         raise AppError("TASK_CLOSED", "Completed or cancelled tasks cannot be edited", 409)
     if "special_note" in d and d["special_note"] is not None:
         d["instructions"] = d["special_note"]
-    before, after = {}, {}
+    target_comp = t.company_id
     if "company_id" in d and d["company_id"] != t.company_id:
         if not p.can_access_company(d["company_id"]):
             raise Forbidden("Access denied for this company")
+        target_comp = d["company_id"]
+
+    from app.modules.org import models as org_models
+
+    def _assert_task_emp_company(emp_id: int | None, role_name: str):
+        if not emp_id:
+            return
+        from app.modules.tasks import projects as proj
+        emp = proj.check_person(db, emp_id, role_name)
+        cids = org_models.employee_company_ids(db, emp)
+        if cids is not None and target_comp not in cids:
+            raise Forbidden(f"{role_name.capitalize()} '{emp.full_name}' does not belong to the task's company")
+
+    if "head_employee_ids" in d and d["head_employee_ids"] is not None:
+        for hid in d["head_employee_ids"]:
+            _assert_task_emp_company(hid, "head")
+    elif "head_employee_id" in d and d["head_employee_id"]:
+        _assert_task_emp_company(d["head_employee_id"], "head")
+    if "sub_head_employee_id" in d and d["sub_head_employee_id"]:
+        _assert_task_emp_company(d["sub_head_employee_id"], "sub-head")
+    if "qa_employee_ids" in d and d["qa_employee_ids"] is not None:
+        for qid in d["qa_employee_ids"]:
+            _assert_task_emp_company(qid, "QA")
+    elif "qa_employee_id" in d and d["qa_employee_id"]:
+        _assert_task_emp_company(d["qa_employee_id"], "QA")
+
+    before, after = {}, {}
+    if "company_id" in d and d["company_id"] != t.company_id:
         before["company_id"], after["company_id"] = t.company_id, d["company_id"]
         t.company_id = d["company_id"]
     if "head_employee_ids" in d and d["head_employee_ids"] is not None:
@@ -540,6 +587,10 @@ def reassign_task(db: Session, p: Principal, t: Task, new_assignee_id: int, reas
     new = assert_assignable(db, p, db.get(Employee, new_assignee_id))
     if new.id == t.assignee_id:
         raise AppError("ALREADY_ASSIGNED", "The task already belongs to this person", 409)
+    from app.modules.org import models as org_models
+    new_cids = org_models.employee_company_ids(db, new)
+    if new_cids is not None and getattr(t, "company_id", 1) not in new_cids:
+        raise Forbidden(f"Assignee '{new.full_name}' does not belong to this task's company")
     now = clock.utcnow()
     old_id = t.assignee_id
     tq.close_running_for_task(db, t, "reassigned", now)  # the previous owner's timer stops at the hand-over
@@ -676,13 +727,32 @@ def status_history(db: Session, t: Task) -> list[dict]:
 # ------------------------------------------------------------------ workload (who has how much)
 
 
-def workload(db: Session, p: Principal) -> list[dict]:
+def workload(db: Session, p: Principal, company_id: int | None = None) -> list[dict]:
     """People you can assign to, with their load (see _workload_rows)."""
     ids = p.scope_employee_ids("task.assign")
     q = select(Employee).where(Employee.status.in_(SELF_STATES), Employee.can_receive_tasks.is_(True))
     if ids is not None:
         peers = select(Employee.id).join(UserRole, UserRole.user_id == Employee.user_id).join(Role, Role.id == UserRole.role_id).where(Role.code == "department_head") if "department_head" in p.roles else None
         q = q.where(Employee.id.in_(ids) | Employee.id.in_(peers)) if peers is not None else q.where(Employee.id.in_(ids))
+    if company_id is not None:
+        from app.modules.org.models import EmployeeCompany
+        q = q.where(
+            or_(
+                Employee.company_id == company_id,
+                Employee.company_id.is_(None),
+                Employee.id.in_(select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id == company_id)),
+            )
+        )
+    elif p.company_ids() is not None:
+        allowed_cids = p.company_ids()
+        from app.modules.org.models import EmployeeCompany
+        q = q.where(
+            or_(
+                Employee.company_id.in_(allowed_cids),
+                Employee.company_id.is_(None),
+                Employee.id.in_(select(EmployeeCompany.employee_id).where(EmployeeCompany.company_id.in_(allowed_cids))),
+            )
+        )
     return _workload_rows(db, p, db.scalars(q).all())
 
 

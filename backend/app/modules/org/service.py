@@ -229,9 +229,11 @@ def create_employee(db: Session, p: Principal, data: dict, request: Request) -> 
     user = User(email=email, password_hash=hash_password(data["temp_password"]), must_change_password=True)
     db.add(user)
     db.flush()
+    emp_company_id = data.get("company_id") or getattr(dept, "company_id", 1) or 1
     emp = Employee(
         user_id=user.id, employee_code=code, full_name=data["full_name"], phone=data.get("phone"),
         job_title=data.get("job_title"), department_id=dept.id, joined_on=data.get("joined_on") or date.today(),
+        company_id=emp_company_id,
     )  # fmt: skip
     db.add(emp)
     db.flush()

@@ -113,6 +113,11 @@ export function TaskDetail() {
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        {t.company && (
+          <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200">
+            {t.company.name} ({t.company.code})
+          </span>
+        )}
         <StatusBadge status={t.status} /><PriorityChip priority={t.priority} />{t.is_overdue && <OverdueBadge />}
         {t.requires_review && !t.review_stage && <Badge tone="purple">Review required</Badge>}
         {t.status === "under_review" && t.review_stage === "qa" && (

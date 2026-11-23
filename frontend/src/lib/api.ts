@@ -28,15 +28,22 @@ export const setAccessToken = (t: string | null) => {
   accessToken = t;
 };
 
-// DEV multi-session: when the API runs with TMS_DEV_MULTI_SESSION it returns the refresh token in the body
-// instead of a shared cookie, and we keep it in sessionStorage, which is PER TAB. That is what lets several
-// roles be signed in at once. In normal (cookie) mode the API never returns it, so this stays unused.
+// Persistent refresh token: stored in localStorage & sessionStorage so closing the browser or tab
+// keeps the user signed in seamlessly, eliminating the need to re-enter email & password on every visit.
 const RT_KEY = "tms_rt";
 const readRt = () => {
-  try { return sessionStorage.getItem(RT_KEY); } catch { return null; }
+  try { return sessionStorage.getItem(RT_KEY) || localStorage.getItem(RT_KEY); } catch { return null; }
 };
 export const setRefreshToken = (t: string | null) => {
-  try { if (t) sessionStorage.setItem(RT_KEY, t); else sessionStorage.removeItem(RT_KEY); } catch { /* storage blocked */ }
+  try {
+    if (t) {
+      sessionStorage.setItem(RT_KEY, t);
+      localStorage.setItem(RT_KEY, t);
+    } else {
+      sessionStorage.removeItem(RT_KEY);
+      localStorage.removeItem(RT_KEY);
+    }
+  } catch { /* storage blocked */ }
 };
 export const getRefreshToken = readRt;
 export const setSessionLostHandler = (fn: () => void) => {

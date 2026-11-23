@@ -101,6 +101,9 @@ def counts(db: Session, pr: Project) -> dict:
 def summary(db: Session, pr: Project) -> dict:
     c = counts(db, pr)
     head_reviewer = db.scalar(select(Employee.full_name).where(Employee.user_id == pr.head_reviewed_by_user_id)) if getattr(pr, "head_reviewed_by_user_id", None) else None
+    from app.modules.org.models import Company
+    comp = db.get(Company, getattr(pr, "company_id", 1)) if getattr(pr, "company_id", None) else None
+    company_obj = {"id": comp.id, "name": comp.name, "code": comp.code} if comp else None
     return {
         "id": pr.id, "code": pr.code, "name": pr.name, "description": pr.description, "status": pr.status,
         "priority": getattr(pr, "priority", "medium") or "medium",
@@ -114,6 +117,7 @@ def summary(db: Session, pr: Project) -> dict:
         "assignee": _person(db, pr.assignee_id), "progress_pct": pr.progress_pct,
         "department_id": pr.department_id,
         "company_id": getattr(pr, "company_id", 1),
+        "company": company_obj,
         "head_reviewed_at": _z(getattr(pr, "head_reviewed_at", None)),
         "head_reviewed_by": head_reviewer,
         "head_review_note": getattr(pr, "head_review_note", None),
@@ -344,6 +348,25 @@ def create_project(db: Session, p: Principal, d: dict, request: Request) -> Proj
     member_ids = d.get("member_ids") or []
     department_id = d.get("department_id")
 
+    from app.modules.org import models as org_models
+
+    def _assert_project_emp_company(emp_id: int | None, role_name: str):
+        if not emp_id:
+            return
+        emp = check_person(db, emp_id, role_name)
+        cids = org_models.employee_company_ids(db, emp)
+        if cids is not None and company_id not in cids:
+            raise Forbidden(f"{role_name.capitalize()} '{emp.full_name}' does not belong to the selected company")
+
+    if assignee_id:
+        _assert_project_emp_company(assignee_id, "assignee")
+    for mid in member_ids:
+        _assert_project_emp_company(mid, "team member")
+    for hid in (head_ids or []):
+        _assert_project_emp_company(hid, "project head")
+    for qid in (d.get("qa_employee_ids") or ([] if not d.get("qa_employee_id") else [d.get("qa_employee_id")])):
+        _assert_project_emp_company(qid, "QA member")
+
     if not head_ids and head_id is None and sub_head_id is None:
         target_emp = None
         if assignee_id:
@@ -406,14 +429,46 @@ def _name(db: Session, emp_id: int | None) -> str:
 def update_project(db: Session, p: Principal, pr: Project, d: dict, request: Request) -> None:
     if "ends_on" in d and d["ends_on"] is None:
         raise AppError("DEADLINE_REQUIRED", "A project needs a deadline (end date)", 422)
+    target_comp = pr.company_id
+    if "company_id" in d and d["company_id"] != pr.company_id:
+        if not p.can_access_company(d["company_id"]):
+            raise Forbidden("Access denied for this company")
+        target_comp = d["company_id"]
+
+    from app.modules.org import models as org_models
+
+    def _assert_project_emp_company(emp_id: int | None, role_name: str):
+        if not emp_id:
+            return
+        emp = check_person(db, emp_id, role_name)
+        cids = org_models.employee_company_ids(db, emp)
+        if cids is not None and target_comp not in cids:
+            raise Forbidden(f"{role_name.capitalize()} '{emp.full_name}' does not belong to the project's company")
+
+    if "assignee_id" in d and d["assignee_id"]:
+        _assert_project_emp_company(d["assignee_id"], "assignee")
+    if "member_ids" in d and d["member_ids"] is not None:
+        for mid in d["member_ids"]:
+            _assert_project_emp_company(mid, "team member")
+    if "head_employee_ids" in d and d["head_employee_ids"] is not None:
+        for hid in d["head_employee_ids"]:
+            _assert_project_emp_company(hid, "project head")
+    elif "head_employee_id" in d and d["head_employee_id"]:
+        _assert_project_emp_company(d["head_employee_id"], "project head")
+    if "sub_head_employee_id" in d and d["sub_head_employee_id"]:
+        _assert_project_emp_company(d["sub_head_employee_id"], "project sub-head")
+    if "qa_employee_ids" in d and d["qa_employee_ids"] is not None:
+        for qid in d["qa_employee_ids"]:
+            _assert_project_emp_company(qid, "QA member")
+    elif "qa_employee_id" in d and d["qa_employee_id"]:
+        _assert_project_emp_company(d["qa_employee_id"], "QA member")
+
     before, after = {}, {}
     for k in ("name", "description", "expected_result", "starts_on", "ends_on", "priority", "special_note"):
         if k in d and getattr(pr, k) != d[k]:
             before[k], after[k] = str(getattr(pr, k)), str(d[k])
             setattr(pr, k, d[k])
     if "company_id" in d and d["company_id"] != pr.company_id:
-        if not p.can_access_company(d["company_id"]):
-            raise Forbidden("Access denied for this company")
         before["company_id"], after["company_id"] = pr.company_id, d["company_id"]
         pr.company_id = d["company_id"]
     if "status" in d and d["status"] != pr.status:
@@ -561,6 +616,7 @@ def assign_point(db: Session, p: Principal, pr: Project, point_id: int, d: dict,
         "qa_employee_id": d.get("qa_employee_id"), "qa_employee_ids": d.get("qa_employee_ids"),
         "start_date": d.get("start_date"), "estimated_hours": d.get("estimated_hours"), "project_id": pr.id,
         "category_id": d.get("category_id"), "type_id": d.get("type_id"),
+        "company_id": getattr(pr, "company_id", 1),
     }  # fmt: skip
     task, warnings = service.create_task(db, p, body, request)
     x.task_id = task.id
@@ -579,6 +635,11 @@ def assert_can_take_task(db: Session, project_id: int, assignee_id: int) -> Proj
     team = team_ids(db, pr)
     if team and assignee_id not in team and assignee_id != pr.head_employee_id:
         raise AppError("NOT_ON_PROJECT_TEAM", "This project has a team. Add the person to the project first, or pick a team member.", 422)
+    from app.modules.org import models as org_models
+    assignee = db.get(Employee, assignee_id)
+    cids = org_models.employee_company_ids(db, assignee) if assignee else None
+    if cids is not None and getattr(pr, "company_id", 1) not in cids:
+        raise Forbidden("Assignee does not belong to the project's company")
     return pr
 
 
