@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.db import DB, get_db
 from app.core.deps import get_principal, require
 from app.core.errors import AppError, Conflict, Forbidden, NotFound
 from app.core.schemas import Strict
@@ -61,6 +63,15 @@ def _company_dict(db, c: Company) -> dict:
         "created_at": c.created_at.isoformat() + "Z" if c.created_at else None,
         "ceos": ceos,
     }
+
+
+@router.get("/public")
+def list_public_companies(db: Session = Depends(get_db)):
+    """Public list of active companies so that people signing up can choose their company."""
+    rows = db.scalars(
+        select(Company).where(Company.is_active.is_(True)).order_by(Company.name)
+    ).all()
+    return [{"id": c.id, "name": c.name, "code": c.code, "logo_url": c.logo_url} for c in rows]
 
 
 @router.get("")

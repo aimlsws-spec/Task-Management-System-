@@ -62,6 +62,18 @@ def _selector_users(db: Session, selector: str, task: Task | None, actor_user_id
     if kind == "ROLE":
         return _users_with_role(db, arg)
     after = payload.get("after") or {}
+    if kind == "COMPANY_CEO":
+        cid = after.get("company_id")
+        if not cid:
+            return []
+        from app.modules.org.models import CompanyCEO
+        return list(
+            db.scalars(
+                select(CompanyCEO.user_id)
+                .join(User, User.id == CompanyCEO.user_id)
+                .where(CompanyCEO.company_id == cid, User.is_active.is_(True))
+            )
+        )
     if kind in ("PROJECT_HEAD", "PROJECT_MEMBERS"):  # the project of the task, or named in the event
         from app.modules.tasks.models import Project, ProjectMember
 

@@ -61,6 +61,10 @@ r("PROJECT_COMPLETED", "PROJECT_MEMBERS", IN)
 # --- a new employee signs up: the Owner(s) are told (in the app and by email); the Admin can edit this rule
 r("EMPLOYEE_SIGNED_UP", "ROLE:owner", mandatory=True)
 r("EMPLOYEE_SIGNED_UP", "ROLE:admin", mandatory=True)
+# --- employee join requests: waiting for approval from the Owner and the specific Company CEO
+r("EMPLOYEE_JOIN_REQUEST", "ROLE:owner", BOTH, mandatory=True, urgent=True)
+r("EMPLOYEE_JOIN_REQUEST", "ROLE:admin", BOTH, mandatory=True, urgent=True)
+r("EMPLOYEE_JOIN_REQUEST", "COMPANY_CEO", BOTH, mandatory=True, urgent=True)
 r("TASK_OWNERSHIP_TAKEN", "ASSIGNEE", IN)
 r("TASK_OWNERSHIP_TAKEN", "ASSIGNER", IN)
 r("TASK_OWNERSHIP_TAKEN", "DIRECT_MANAGER", IN)
@@ -204,7 +208,7 @@ REMINDERS = [
 ]
 
 
-RULES_VERSION = 6  # 2: delay explanations reach CEO/Owner only after approval; head-to-head loop; head ownership
+RULES_VERSION = 7  # 7: join requests sent to Owner and specific Company CEO
 REWRITTEN = {"DELAY_EXPLANATION_SUBMITTED", "PROJECT_MEMBER_ADDED"}  # rule sets replaced wholesale when upgrading an older database
 
 

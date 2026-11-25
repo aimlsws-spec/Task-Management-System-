@@ -13,6 +13,7 @@ from app.modules.auth.service import revoke_all_sessions
 from app.modules.notifications import direct
 from app.modules.org import codes
 from app.modules.org.models import (
+    Company,
     Department,
     DepartmentCompany,
     DepartmentHead,
@@ -188,16 +189,19 @@ def role_codes(db: Session, user_id: int) -> list[str]:
 def employee_dict(db: Session, e: Employee) -> dict:
     u = db.get(User, e.user_id)
     cids = employee_company_ids(db, e)
+    comp = db.get(Company, e.company_id) if getattr(e, "company_id", None) else None
     return {
         "id": e.id, "user_id": e.user_id, "employee_code": e.employee_code, "full_name": e.full_name,
-        "email": u.email, "phone": e.phone, "job_title": e.job_title, "department_id": e.department_id,
+        "email": u.email if u else None, "phone": e.phone, "job_title": e.job_title, "department_id": e.department_id,
         "company_id": getattr(e, "company_id", 1),
+        "company_name": comp.name if comp else None,
         "company_ids": sorted(cids) if cids is not None else [],
         "is_shared": e.company_id is None,
-        "status": e.status, "is_active": u.is_active, "daily_capacity_hours": float(e.daily_capacity_hours),
-        "can_receive_tasks": e.can_receive_tasks, "roles": role_codes(db, e.user_id),
+        "status": e.status, "is_active": u.is_active if u else False, "daily_capacity_hours": float(e.daily_capacity_hours),
+        "can_receive_tasks": e.can_receive_tasks, "roles": role_codes(db, e.user_id) if u else [],
         "reports_to_id": current_manager_id(db, e.id),
-    }  # fmt: skip
+        "created_at": e.created_at.isoformat() + "Z" if getattr(e, "created_at", None) else None,
+    }
 
 
 def _role_names(db: Session, codes: list[str]) -> list[str]:

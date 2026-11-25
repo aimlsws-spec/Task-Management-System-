@@ -20,8 +20,10 @@ def dept(seeded, code):
         return s.scalar(select(Department.id).where(Department.code == code))
 
 
-def signup_and_login(client, **over):
+def signup_and_login(client, as_user=None, **over):
     body = NEW | over
+    if as_user is not None:
+        client.post(f"{API}/role-invites", headers=as_user("admin"), json={"email": body["email"], "role_code": "employee"})
     assert client.post(f"{API}/auth/signup", json=body).status_code == 201
     r = client.post(f"{API}/auth/login", json={"email": body["email"], "password": body["password"]})
     assert r.status_code == 200, r.text
@@ -52,8 +54,16 @@ def test_signup_cannot_choose_role_or_department(open_signup):
     assert r.status_code == 422  # unknown fields rejected: nobody can self-assign privileges
 
 
-def test_new_employee_is_gated_until_onboarding_done(open_signup):
+def test_uninvited_signup_enters_pending_approval(open_signup):
     h = signup_and_login(open_signup)
+    me = open_signup.get(f"{API}/auth/me", headers=h).json()
+    assert me["employee"]["status"] == "pending_approval"
+    r = open_signup.get(f"{API}/employees", headers=h)
+    assert r.status_code == 403 and r.json()["code"] == "APPROVAL_REQUIRED"
+
+
+def test_new_employee_is_gated_until_onboarding_done(open_signup, as_user):
+    h = signup_and_login(open_signup, as_user=as_user)
     me = open_signup.get(f"{API}/auth/me", headers=h).json()
     assert me["employee"]["status"] == "pending_setup" and me["roles"] == ["employee"]
     r = open_signup.get(f"{API}/employees", headers=h)
@@ -62,7 +72,7 @@ def test_new_employee_is_gated_until_onboarding_done(open_signup):
 
 
 def test_onboarding_into_developers_groups_under_developers_head(open_signup, as_user, seeded):
-    h = signup_and_login(open_signup)
+    h = signup_and_login(open_signup, as_user=as_user)
     r = open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, "DEV"), "designation": "AI/ML Developer"})
     assert r.status_code == 200, r.text
     dev_head = open_signup.get(f"{API}/auth/me", headers=as_user("devhead")).json()["employee"]["id"]
@@ -76,14 +86,14 @@ def test_onboarding_into_developers_groups_under_developers_head(open_signup, as
 
 
 def test_onboarding_into_hr_goes_to_hr_head(open_signup, as_user, seeded):
-    h = signup_and_login(open_signup)
+    h = signup_and_login(open_signup, as_user=as_user)
     r = open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, "HR"), "designation": "HR Executive"})
     hr_head = open_signup.get(f"{API}/auth/me", headers=as_user("hrhead")).json()["employee"]["id"]
     assert r.json()["reports_to_id"] == hr_head
 
 
 def test_department_without_head_reports_to_the_manager(open_signup, as_user, seeded):
-    h = signup_and_login(open_signup)
+    h = signup_and_login(open_signup, as_user=as_user)
     r = open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, "SUP"), "designation": "Support Agent"})
     manager = open_signup.get(f"{API}/auth/me", headers=as_user("manager")).json()["employee"]["id"]
     assert r.json()["reports_to_id"] == manager
@@ -94,15 +104,15 @@ def test_onboarding_rejects_system_inactive_or_hidden_departments(open_signup, a
     admin = as_user("admin")
     open_signup.patch(f"{API}/departments/{dept(seeded, 'SAL')}", headers=admin, json={"self_service": False})
     open_signup.patch(f"{API}/departments/{dept(seeded, 'ACC')}", headers=admin, json={"is_active": False})
-    h = signup_and_login(open_signup)
+    h = signup_and_login(open_signup, as_user=as_user)
     for code in ("MGMT", "UNASSIGNED", "SAL", "ACC"):
         r = open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, code), "designation": "Anything"})
         assert r.status_code == 422, code
     assert open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": 999999, "designation": "Anything"}).status_code == 422
 
 
-def test_onboarding_requires_designation_and_happens_once(open_signup, seeded):
-    h = signup_and_login(open_signup)
+def test_onboarding_requires_designation_and_happens_once(open_signup, as_user, seeded):
+    h = signup_and_login(open_signup, as_user=as_user)
     assert open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, "DEV"), "designation": " "}).status_code == 422
     ok = {"department_id": dept(seeded, "DEV"), "designation": "Backend Developer"}
     assert open_signup.post(f"{API}/me/onboarding", headers=h, json=ok).status_code == 200
@@ -114,8 +124,8 @@ def test_existing_employees_cannot_use_onboarding(client, as_user, seeded):
     assert r.status_code == 409
 
 
-def test_signup_and_onboarding_are_audited(open_signup, seeded):
-    h = signup_and_login(open_signup)
+def test_signup_and_onboarding_are_audited(open_signup, as_user, seeded):
+    h = signup_and_login(open_signup, as_user=as_user)
     open_signup.post(f"{API}/me/onboarding", headers=h, json={"department_id": dept(seeded, "DEV"), "designation": "Backend Developer"})
     with seeded() as s:
         actions = {a.action for a in s.scalars(select(ActivityLog))}
@@ -123,7 +133,7 @@ def test_signup_and_onboarding_are_audited(open_signup, seeded):
 
 
 def test_admin_can_finish_a_pending_employees_setup(open_signup, as_user, seeded):
-    signup_and_login(open_signup)
+    signup_and_login(open_signup, as_user=as_user)
     admin = as_user("admin")
     pending = next(e for e in open_signup.get(f"{API}/employees", headers=admin).json()["items"] if e["full_name"] == "Nina New")
     assert pending["status"] == "pending_setup"

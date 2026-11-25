@@ -12,7 +12,7 @@ from app.modules.audit import service as audit
 from app.modules.auth.models import User
 from app.modules.notifications import direct, outbox
 from app.modules.org import codes, invites
-from app.modules.org.models import Department, Employee, ManagerDepartment
+from app.modules.org.models import Company, CompanyCEO, Department, Employee, EmployeeCompany, ManagerDepartment
 from app.modules.org.service import PENDING, current_manager_id, default_manager_id, set_manager
 from app.modules.rbac.models import Role, UserRole
 from app.modules.rbac.policy import Principal, user_max_rank
@@ -60,7 +60,7 @@ def regroup_department_under_head(db: Session, p: Principal, dept: Department, r
     return moved
 
 
-def signup(db: Session, full_name: str, email: str, password: str, request: Request | None) -> Employee:
+def signup(db: Session, full_name: str, email: str, password: str, request: Request | None, company_id: int | None = None) -> Employee:
     email = email.strip().lower()
     if db.scalar(select(User.id).where(User.email == email)):
         raise Conflict("EMAIL_EXISTS", "An account with this email already exists. Try signing in.")
@@ -77,15 +77,69 @@ def signup(db: Session, full_name: str, email: str, password: str, request: Requ
     db.add(emp)
     db.add(UserRole(user_id=user.id, role_id=role.id))
     db.flush()
+
     inv = invites.find_unclaimed(db, email)
-    if inv is not None:  # the Admin registered this email for a role (ADR 002)
+    if inv is not None:  # the Admin / CEO registered this email for a role (ADR 002)
         invites.apply_at_signup(db, inv, user, emp, request)
-    names = list(db.scalars(select(Role.name).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id)))
-    role_title = ", ".join(names) or "Employee"
-    needs_onboarding = emp.status == PENDING
-    direct.welcome(db, email, user.id, full_name, role_title, needs_onboarding=needs_onboarding)
-    audit.log(db, user.id, "SIGNUP", "employee", emp.id, after={"email": email, "role": role_title}, request=request)
-    outbox.emit(db, "EMPLOYEE_SIGNED_UP", None, user.id, {"after": {"name": full_name, "email": email, "role": role_title, "needs_onboarding": needs_onboarding}})
+        names = list(db.scalars(select(Role.name).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id)))
+        role_title = ", ".join(names) or "Employee"
+        needs_onboarding = emp.status == PENDING
+        direct.welcome(db, email, user.id, full_name, role_title, needs_onboarding=needs_onboarding)
+        audit.log(db, user.id, "SIGNUP", "employee", emp.id, after={"email": email, "role": role_title}, request=request)
+        outbox.emit(db, "EMPLOYEE_SIGNED_UP", None, user.id, {"after": {"name": full_name, "email": email, "role": role_title, "needs_onboarding": needs_onboarding}})
+        return emp
+
+    # Self sign-up: requires selecting a company and getting leadership (Owner / CEO) approval
+    if company_id is None:
+        active_companies = db.scalars(select(Company).where(Company.is_active.is_(True))).all()
+        if len(active_companies) == 1:
+            comp = active_companies[0]
+        else:
+            raise AppError("COMPANY_REQUIRED", "Please select a company to join", 422)
+    else:
+        comp = db.get(Company, company_id)
+        if comp is None or not comp.is_active:
+            raise AppError("INVALID_COMPANY", "Selected company not found or inactive", 422)
+
+    emp.company_id = comp.id
+    emp.status = "pending_approval"
+    db.add(EmployeeCompany(employee_id=emp.id, company_id=comp.id))
+    db.flush()
+
+    # Emit outbox notification for Owner and specific Company CEO
+    payload = {
+        "after": {
+            "name": full_name,
+            "email": email,
+            "company_id": comp.id,
+            "company_name": comp.name,
+            "user_id": user.id,
+            "employee_id": emp.id,
+        }
+    }
+    outbox.emit(db, "EMPLOYEE_JOIN_REQUEST", None, user.id, payload)
+
+    # Direct email to Owner(s) and this specific company's CEO(s)
+    owners = db.execute(
+        select(User.id, User.email)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(Role.code.in_(["owner", "admin"]), User.is_active.is_(True))
+    ).all()
+    ceos = db.execute(
+        select(User.id, User.email)
+        .join(CompanyCEO, CompanyCEO.user_id == User.id)
+        .where(CompanyCEO.company_id == comp.id, User.is_active.is_(True))
+    ).all()
+    notified = set()
+    for u_id, u_email in list(owners) + list(ceos):
+        if u_email not in notified:
+            notified.add(u_email)
+            direct.join_request(db, u_email, u_id, full_name, email, comp.name)
+
+    direct.join_request_submitted(db, email, user.id, full_name, comp.name)
+    audit.log(db, user.id, "EMPLOYEE_JOIN_REQUESTED", "employee", emp.id,
+              after={"email": email, "company_id": comp.id, "company_name": comp.name}, request=request)
     return emp
 
 

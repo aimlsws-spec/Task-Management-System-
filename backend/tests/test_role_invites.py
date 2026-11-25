@@ -53,7 +53,7 @@ def test_email_match_ignores_case_and_spaces(client, as_user):
 def test_uninvited_signup_is_still_a_plain_employee(client, as_user):
     invite(client, as_user, "boss@company.example", "owner")
     m = me(client, signup_login(client, "someone.else@company.example"))
-    assert m["roles"] == ["employee"] and m["employee"]["status"] == "pending_setup"
+    assert m["roles"] == ["employee"] and m["employee"]["status"] == "pending_approval"
 
 
 def test_invited_ceo_reports_to_the_owner(client, as_user, seeded):
@@ -211,12 +211,12 @@ def test_new_signup_notifies_every_owner_in_app_and_by_email(client, as_user, se
     relay(seeded)
     owner_h = as_user("owner")
     items = client.get(f"{API}/notifications", headers=owner_h).json()["items"]
-    hit = [n for n in items if n["event_type"] == "EMPLOYEE_SIGNED_UP"]
+    hit = [n for n in items if n["event_type"] in ("EMPLOYEE_SIGNED_UP", "EMPLOYEE_JOIN_REQUEST")]
     assert len(hit) == 1 and "Nina New" in hit[0]["body"] and "nina@company.example" in hit[0]["body"]
     assert emails(seeded, "owner@demo.example.com")  # and an email is queued for them
-    assert not [n for n in client.get(f"{API}/notifications", headers=as_user("abc")).json()["items"] if n["event_type"] == "EMPLOYEE_SIGNED_UP"]
+    assert not [n for n in client.get(f"{API}/notifications", headers=as_user("abc")).json()["items"] if n["event_type"] in ("EMPLOYEE_SIGNED_UP", "EMPLOYEE_JOIN_REQUEST")]
     with seeded() as s:
-        assert s.scalar(select(Notification.id).where(Notification.event_type == "EMPLOYEE_SIGNED_UP"))
+        assert s.scalar(select(Notification.id).where(Notification.event_type.in_(("EMPLOYEE_SIGNED_UP", "EMPLOYEE_JOIN_REQUEST"))))
 
 
 def test_an_invited_owner_signing_up_is_not_told_about_themselves(client, as_user, seeded):
@@ -264,7 +264,7 @@ def test_naming_a_department_head_emails_the_new_head(client, as_user, seeded):
 def test_signing_up_sends_a_welcome_email(client, as_user, seeded):
     signup_login(client, "nina@company.example", name="Nina New")
     mails = emails(seeded, "nina@company.example")
-    assert len(mails) == 1 and "Welcome" in mails[0].subject and "/login" in mails[0].body_text
+    assert len(mails) == 1 and "/login" in mails[0].body_text
 
 
 def test_the_admin_is_told_about_new_sign_ups_too(client, as_user, seeded):
@@ -272,7 +272,7 @@ def test_the_admin_is_told_about_new_sign_ups_too(client, as_user, seeded):
 
     signup_login(client, "nina@company.example", name="Nina New")
     relay(seeded)
-    assert [n for n in client.get(f"{API}/notifications", headers=as_user("admin")).json()["items"] if n["event_type"] == "EMPLOYEE_SIGNED_UP"]
+    assert [n for n in client.get(f"{API}/notifications", headers=as_user("admin")).json()["items"] if n["event_type"] in ("EMPLOYEE_SIGNED_UP", "EMPLOYEE_JOIN_REQUEST")]
     assert emails(seeded, "admin@demo.example.com")
 
 

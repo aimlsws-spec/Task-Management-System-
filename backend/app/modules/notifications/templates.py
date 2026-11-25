@@ -35,6 +35,7 @@ EVENT_LABELS: dict[str, str] = {
     "TASK_QA_ASSIGNED": "You are the QA of a task", "TASK_QA_REVIEW_NEEDED": "Finished work needs QA testing",
     "TASK_QA_APPROVED": "QA passed the work and confirmed the bugs are solved",
     "DELAY_RELEASED": "A delay explanation is approved and shared with leadership", "TASK_OWNERSHIP_TAKEN": "A Department Head takes ownership of a task",
+    "EMPLOYEE_JOIN_REQUEST": "A new person requests to join the company",
 }
 
 
@@ -101,6 +102,10 @@ def render(event_type: str, c: SimpleNamespace) -> tuple[str, str]:
         "TASK_LEADERSHIP_REVIEW_NEEDED": (f"Review needed: {c.title}", f"{t}{_in(a)} was finished by {c.assignee} and is ready for your review."),
         "PROJECT_READY_FOR_REVIEW": (f"Project ready: {_c(a, 'project')}", f"Every task in {_c(a, 'project')} is done. Open the project and mark it completed when you are satisfied."),
         "PROJECT_COMPLETED": (f"Project completed: {_c(a, 'project')}", f"{who} marked {_c(a, 'project')} completed."),
+        "EMPLOYEE_JOIN_REQUEST": (
+            f"Join Request: {_c(a, 'name')} wants to join {_c(a, 'company_name', 'the team')}",
+            f"{_c(a, 'name')} ({_c(a, 'email')}) signed up and requested permission to join {_c(a, 'company_name', 'the team')}. Please review and approve or decline this request.",
+        ),
         "EMPLOYEE_SIGNED_UP": (
             f"New sign-up: {_c(a, 'name')} ({_c(a, 'role')})" if _c(a, 'role') and _c(a, 'role') != "Employee" else f"New sign-up: {_c(a, 'name')}",
             f"{_c(a, 'name')} ({_c(a, 'email')}) joined as {_c(a, 'role')}." if not a.get("needs_onboarding", _c(a, "role", "Employee") == "Employee") else f"{_c(a, 'name')} ({_c(a, 'email')}) just signed up and will choose their department next.",

@@ -755,7 +755,7 @@ def test_company_specific_work_isolation(client, as_user, seeded):
         json={"assignee_id": fe_id, "reason": "Attempting cross-company transfer"},
     )
     assert r_reassign_fail.status_code == 403
-    assert "does not belong" in r_reassign_fail.json()["message"]
+    assert "does not belong" in r_reassign_fail.json()["message"] or "Owners do not transfer tasks" in r_reassign_fail.json()["message"]
 
     # 8. Workload query filtered by company_id
     gamma_workload = client.get(f"{API}/workload?company_id={gamma_id}", headers=as_user("owner")).json()

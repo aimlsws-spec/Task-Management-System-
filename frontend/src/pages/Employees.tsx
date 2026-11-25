@@ -3,6 +3,7 @@ import { MailCheck, Network, UserPlus } from "lucide-react";
 import { useState, useMemo, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, PasswordInput, Select, Spinner } from "@/components/ui";
+import { PendingApprovalsCard } from "@/components/PendingApprovalsCard";
 import { api } from "@/lib/api";
 import { Can, useAuth } from "@/lib/auth";
 
@@ -89,6 +90,11 @@ export function Employees() {
           onClose={() => setEditing(null)}
           onDone={() => { setEditing(null); qc.invalidateQueries({ queryKey: ["employees"] }); qc.invalidateQueries({ queryKey: ["hierarchy-tree"] }); }}
         />
+      )}
+      {can("employee.manage") && (
+        <div className="mb-4">
+          <PendingApprovalsCard companyId={companyId} compact={true} />
+        </div>
       )}
       <div className="mb-4 flex flex-wrap gap-3">
         <Input className="max-w-xs" placeholder="Search name or code" value={q} onChange={(e) => setQ(e.target.value)} />

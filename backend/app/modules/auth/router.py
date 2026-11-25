@@ -38,6 +38,7 @@ class SignupIn(Strict):
     full_name: str = Field(min_length=2, max_length=150)
     email: EmailStr
     password: str = Field(max_length=200)
+    company_id: int | None = None
 
 
 @router.post("/signup", status_code=201)
@@ -47,12 +48,17 @@ def signup(body: SignupIn, request: Request, db: Session = DB):
     from app.modules.org import admin_service
 
     ratelimit.check(f"signup:{request.client.host if request.client else '?'}", 5)
-    emp = admin_service.signup(db, body.full_name, body.email, body.password, request)
+    emp = admin_service.signup(db, body.full_name, body.email, body.password, request, company_id=body.company_id)
     if otp.enabled():
         user = db.get(service.User, emp.user_id)
         db.commit()  # the account exists even if the mail provider is down; they can sign in later
         return otp.start(db, user, "signup", request)
-    return {"message": "Account created. Sign in to finish setting up your profile."}
+    msg = (
+        "Your request to join the company has been submitted and is pending leadership approval."
+        if emp.status == "pending_approval"
+        else "Account created. Sign in to finish setting up your profile."
+    )
+    return {"message": msg}
 
 
 class RefreshIn(Strict):
@@ -200,6 +206,12 @@ def _team_info(db, e) -> dict:
 @router.get("/me")
 def me(p: Principal = Depends(get_principal)):
     e = p.employee
+    comp_name = None
+    if e is not None and getattr(e, "company_id", None):
+        from app.modules.org.models import Company
+        comp = p.db.get(Company, e.company_id)
+        if comp:
+            comp_name = comp.name
     return {
         "user": {
             "id": p.user.id,
@@ -216,6 +228,7 @@ def me(p: Principal = Depends(get_principal)):
             "job_title": e.job_title,
             "department_id": e.department_id,
             "company_id": getattr(e, "company_id", 1),
+            "company_name": comp_name,
             "status": e.status,
             **_team_info(p.db, e),
         },

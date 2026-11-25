@@ -8,9 +8,13 @@ from app.core.deps import get_principal, require
 from app.core.errors import Forbidden, NotFound
 from app.core.schemas import Strict
 from app.modules.audit import service as audit
+from app.modules.auth.models import User
+from app.modules.auth.service import revoke_all_sessions
+from app.modules.notifications import direct
 from app.modules.org import admin_service, invites, service
 from app.modules.org import models as org_models
-from app.modules.org.models import Department, Employee, ReportingRelationship
+from app.modules.org.admin_service import UNASSIGNED_CODE
+from app.modules.org.models import Company, Department, Employee, ReportingRelationship
 from app.modules.rbac.policy import Principal
 
 router = APIRouter(tags=["organization"])
@@ -270,6 +274,27 @@ def create_employee(body: EmployeeIn, request: Request, p: Principal = Depends(r
     return service.employee_dict(p.db, emp)
 
 
+class ApproveIn(Strict):
+    department_id: int | None = None
+    job_title: str | None = None
+
+
+@router.get("/employees/pending-approvals")
+def list_pending_approvals(company_id: int | None = None, p: Principal = Depends(require("employee.manage"))):
+    if p.rank < 90:
+        raise Forbidden("Only CEO, Owner or Admin can review pending employee approvals")
+    stmt = select(Employee).where(Employee.status == "pending_approval")
+    cids = p.company_ids()
+    if cids is not None:
+        if company_id is not None and company_id not in cids:
+            return []
+        stmt = stmt.where(Employee.company_id.in_(cids))
+    elif company_id is not None:
+        stmt = stmt.where(Employee.company_id == company_id)
+    rows = p.db.scalars(stmt.order_by(Employee.id.desc())).all()
+    return [service.employee_dict(p.db, e) for e in rows]
+
+
 @router.get("/employees/{emp_id}")
 def get_employee(emp_id: int, p: Principal = Depends(require("employee.view"))):
     return service.employee_dict(p.db, _visible_employee(p, emp_id))
@@ -293,6 +318,92 @@ def reactivate(emp_id: int, request: Request, p: Principal = Depends(require("em
     emp = _or_404(p.db.get(Employee, emp_id), "Employee")
     service.reactivate_employee(p.db, p, emp, request)
     return service.employee_dict(p.db, emp)
+
+
+@router.post("/employees/{emp_id}/approve")
+def approve_employee(emp_id: int, request: Request, body: ApproveIn | None = None, p: Principal = Depends(require("employee.manage"))):
+    if p.rank < 90:
+        raise Forbidden("Only CEO, Owner or Admin can approve employee join requests")
+    emp = p.db.get(Employee, emp_id)
+    if emp is None or emp.status != "pending_approval":
+        raise NotFound("Pending employee join request not found")
+    cid = getattr(emp, "company_id", 1) or 1
+    if not p.can_access_company(cid):
+        raise Forbidden("You are not authorized to approve join requests for this company")
+
+    u = p.db.get(User, emp.user_id)
+    comp = p.db.get(Company, cid) if cid else None
+    comp_name = comp.name if comp else "the company"
+
+    if body and body.department_id:
+        dept = p.db.get(Department, body.department_id)
+        if dept and dept.is_active:
+            emp.department_id = dept.id
+    else:
+        holding = p.db.scalar(select(Department).where(Department.code == UNASSIGNED_CODE))
+        if holding and emp.department_id == holding.id:
+            # assign first active department in this company
+            co_dept = p.db.scalar(
+                select(Department)
+                .where(Department.company_id == cid, Department.is_active.is_(True), Department.id != holding.id)
+                .order_by(Department.id)
+                .limit(1)
+            )
+            if co_dept:
+                emp.department_id = co_dept.id
+
+    if body and body.job_title:
+        emp.job_title = body.job_title.strip()[:100]
+    elif not emp.job_title:
+        emp.job_title = "Team Member"
+
+    emp.status = "active"
+    if u:
+        u.is_active = True
+    p.db.flush()
+
+    dept = p.db.get(Department, emp.department_id)
+    if dept:
+        boss = service.default_manager_id(p.db, dept, exclude_employee_id=emp.id)
+        if boss:
+            try:
+                service.set_manager(p.db, p, emp.id, boss, request, audit_it=False)
+            except Exception:
+                pass
+
+    if u:
+        direct.employee_approved(p.db, u.email, u.id, emp.full_name, comp_name)
+    audit.log(p.db, p.user.id, "EMPLOYEE_APPROVED", "employee", emp.id,
+              after={"company_id": cid, "department_id": emp.department_id, "status": "active"}, request=request)
+    return service.employee_dict(p.db, emp)
+
+
+@router.post("/employees/{emp_id}/reject")
+def reject_employee(emp_id: int, request: Request, p: Principal = Depends(require("employee.manage"))):
+    if p.rank < 90:
+        raise Forbidden("Only CEO, Owner or Admin can reject employee join requests")
+    emp = p.db.get(Employee, emp_id)
+    if emp is None or emp.status != "pending_approval":
+        raise NotFound("Pending employee join request not found")
+    cid = getattr(emp, "company_id", 1) or 1
+    if not p.can_access_company(cid):
+        raise Forbidden("You are not authorized to reject join requests for this company")
+
+    u = p.db.get(User, emp.user_id)
+    comp = p.db.get(Company, cid) if cid else None
+    comp_name = comp.name if comp else "the company"
+
+    emp.status = "rejected"
+    if u:
+        u.is_active = False
+        revoke_all_sessions(p.db, u)
+    p.db.flush()
+
+    if u:
+        direct.employee_rejected(p.db, u.email, u.id, emp.full_name, comp_name)
+    audit.log(p.db, p.user.id, "EMPLOYEE_REJECTED", "employee", emp.id,
+              after={"company_id": cid, "status": "rejected"}, request=request)
+    return {"message": "Employee join request rejected"}
 
 
 # ---------------- role emails (Admin) ----------------

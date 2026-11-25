@@ -162,7 +162,7 @@ def can_manage(p: Principal, t: Task, perm: str) -> bool:
     if me > 0:
         if t.head_employee_id == me or getattr(t, "sub_head_employee_id", None) == me:
             return True
-        if p.db.scalar(select(TaskHead.id).where(TaskHead.task_id == t.id, TaskHead.employee_id == me)):
+        if p.db.scalar(select(TaskHead.task_id).where(TaskHead.task_id == t.id, TaskHead.employee_id == me)):
             return True
     return False
 

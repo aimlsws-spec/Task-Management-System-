@@ -26,6 +26,7 @@ import { AuditLogPage } from "@/pages/AuditLog";
 import { AdminPanel } from "@/pages/AdminPanel";
 import { Companies } from "@/pages/Companies";
 import { Signup } from "@/pages/Signup";
+import { PendingApproval } from "@/pages/PendingApproval";
 import { AppShell } from "./AppShell";
 
 function Protected({ children, perm }: { children: React.ReactNode; perm?: string }) {
@@ -46,6 +47,8 @@ export function App() {
         <Route path="*" element={<Navigate to="/login" replace />} />
       ) : me?.user.must_change_password ? (
         <Route path="*" element={<ChangePassword />} />
+      ) : me?.employee?.status === "pending_approval" ? (
+        <Route path="*" element={<PendingApproval />} />
       ) : me?.employee?.status === "pending_setup" ? (
         // New self-registered employee: must choose department + designation before anything else.
         <Route path="*" element={<Onboarding />} />

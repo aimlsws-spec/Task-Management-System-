@@ -35,6 +35,10 @@ def get_principal(request: Request, db: Session = DB) -> Principal:
     if user.must_change_password and request.url.path not in _ALLOWED_WHILE_MUST_CHANGE:
         raise AppError("PASSWORD_CHANGE_REQUIRED", "You must change your password first", 403)
     employee = db.scalar(select(Employee).where(Employee.user_id == user.id))
+    if employee is not None and employee.status == "pending_approval" and request.url.path not in _ALLOWED_WHILE_MUST_CHANGE:
+        raise AppError("APPROVAL_REQUIRED", "Your request to join is awaiting approval from company leadership (CEO/Owner).", 403)
+    if employee is not None and employee.status == "rejected" and request.url.path not in _ALLOWED_WHILE_MUST_CHANGE:
+        raise AppError("ACCESS_DENIED", "Your request to join was declined. Please contact your company administrator.", 403)
     if employee is not None and employee.status == "pending_setup" and request.url.path not in _ALLOWED_WHILE_PENDING:
         raise AppError("ONBOARDING_REQUIRED", "Choose your department and designation to continue", 403)
     perms, roles, rank = effective_permissions(db, user.id)

@@ -23,7 +23,8 @@ def _queue(db: Session, to_email: str, to_user_id: int | None, subject: str, bod
     db.flush()
     if mailer.real_mail_server() and not mailer.is_reserved_recipient(to_email):
         try:
-            row.backend = mailer.send_message(mailer.build_message(row))
+            b = mailer.send_message(mailer.build_message(row))
+            row.backend = (b or "smtp")[:10]
             row.status = "sent"
             row.sent_at = clock.utcnow()
             row.last_error = None
@@ -67,3 +68,43 @@ def welcome(db: Session, email: str, user_id: int, full_name: str, role_name: st
     else:
         body = f"Hello {full_name}, your account is created as {role_name}. Sign in to access your dashboard."
     _queue(db, email, user_id, "[SeaWind] Welcome to SeaWind Task Management", body, "/login", "Sign in")
+
+
+def join_request(db: Session, email: str, user_id: int, applicant_name: str, applicant_email: str, company_name: str) -> None:
+    subject = f"[SeaWind] Join Request: {applicant_name} wants to join {company_name}"
+    body = (
+        f"{applicant_name} ({applicant_email}) has signed up and requested permission to join the {company_name} team.\n\n"
+        "As an authorized CEO / Owner, please review the application and approve or decline access."
+    )
+    _queue(db, email, user_id, subject, body, "/employees", "Review Join Request")
+
+
+def join_request_submitted(db: Session, email: str, user_id: int, full_name: str, company_name: str) -> None:
+    subject = f"[SeaWind] Your request to join {company_name} has been received"
+    body = (
+        f"Hello {full_name},\n\n"
+        f"Thank you for registering. Your request to join {company_name} has been sent to company leadership (CEO & Owner) for approval.\n\n"
+        "You will receive an email confirmation as soon as your account is approved."
+    )
+    _queue(db, email, user_id, subject, body, "/login", "Check Status")
+
+
+def employee_approved(db: Session, email: str, user_id: int, full_name: str, company_name: str) -> None:
+    subject = f"[SeaWind] Congratulations! Your request to join {company_name} was approved"
+    body = (
+        f"Hello {full_name},\n\n"
+        f"Great news! Company leadership has approved your request to join {company_name}.\n\n"
+        "Your employee account is now fully active. Sign in to access your tasks, projects, and dashboard."
+    )
+    _queue(db, email, user_id, subject, body, "/login", "Sign in to Workspace")
+
+
+def employee_rejected(db: Session, email: str, user_id: int, full_name: str, company_name: str) -> None:
+    subject = f"[SeaWind] Update regarding your join request for {company_name}"
+    body = (
+        f"Hello {full_name},\n\n"
+        f"Thank you for your interest in joining {company_name}. Leadership has reviewed your application and was unable to approve it at this time.\n\n"
+        "If you believe this is in error, please contact your company administrator."
+    )
+    _queue(db, email, user_id, subject, body, "/login", "Go to SeaWind")
+

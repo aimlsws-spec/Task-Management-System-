@@ -5,6 +5,7 @@ import { api, getRefreshToken, refreshSession, setAccessToken, setRefreshToken, 
 export type Me = {
   user: { id: number; email: string; timezone: string; must_change_password: boolean };
   employee: { id: number; employee_code: string; full_name: string; job_title: string | null; department_id: number; status: string;
+    company_id?: number; company_name?: string | null;
     department?: string | null; head?: { id: number; full_name: string } | null; reports_to?: { id: number; full_name: string } | null; qa?: { id: number; full_name: string } | null } | null;
   roles: string[];
   rank: number;
@@ -20,7 +21,7 @@ type AuthState = {
   me: Me | null;
   /** Resolves to null when signed in (code switched off), or to the challenge when a code must be entered. */
   login: (email: string, password: string) => Promise<OtpChallenge | null>;
-  signup: (body: { full_name: string; email: string; password: string }) => Promise<OtpChallenge | null>;
+  signup: (body: { full_name: string; email: string; password: string; company_id?: number }) => Promise<OtpChallenge | null>;
   verifyOtp: (challenge: string, code: string) => Promise<void>;
   resendOtp: (challenge: string) => Promise<OtpChallenge>;
   logout: () => Promise<void>;
@@ -75,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [start],
   );
   const signup = useCallback(
-    async (body: { full_name: string; email: string; password: string }) => {
+    async (body: { full_name: string; email: string; password: string; company_id?: number }) => {
       const r = await api<Session | OtpChallenge | { message: string }>("/auth/signup", { body });
       // Code switched off: the account exists, sign in with the password as before.
       if ("message" in r) return start(await api<Session | OtpChallenge>("/auth/login", { body: { email: body.email, password: body.password } }));

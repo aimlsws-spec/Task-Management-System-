@@ -7,6 +7,7 @@ import { fmtDay, LevelBadge, OverdueBadge, PriorityChip, StatusBadge, type Delay
 import { OverviewPanel } from "@/components/Overview";
 import { AdminDashboard } from "@/components/AdminDashboard";
 import { OrgHierarchyTree } from "@/components/OrgHierarchyTree";
+import { PendingApprovalsCard } from "@/components/PendingApprovalsCard";
 import { CreateEmployee } from "@/pages/Employees";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -118,6 +119,7 @@ export function Dashboard() {
       <div className="space-y-5">
         {isLeadership && (
           <div className="space-y-4">
+            <PendingApprovalsCard compact={true} />
             {/* Quick Action Navigation Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 p-3.5 border border-indigo-100 shadow-sm">
               <div className="flex items-center gap-2.5">

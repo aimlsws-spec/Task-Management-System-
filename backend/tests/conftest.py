@@ -31,6 +31,9 @@ for _k, _v in {
 }.items():
     os.environ[_k] = _v
 
+from app.core.config import get_settings
+get_settings.cache_clear()
+
 from alembic.config import Config  # noqa: E402
 from argon2 import PasswordHasher  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

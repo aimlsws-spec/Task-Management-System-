@@ -17,6 +17,7 @@ import {
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Badge, Button, Card, PageHeader, Spinner } from "@/components/ui";
+import { PendingApprovalsCard } from "@/components/PendingApprovalsCard";
 import { fmtDateTime } from "@/components/task-ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -174,6 +175,8 @@ export function AdminDashboard({ name }: { name?: string }) {
           </div>
         }
       />
+
+      <PendingApprovalsCard compact={true} />
 
       {/* 4 Primary KPI Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
