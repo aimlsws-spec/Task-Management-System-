@@ -326,7 +326,7 @@ CREATE TABLE `departments` (
   CONSTRAINT `fk_dept_head` FOREIGN KEY (`head_employee_id`) REFERENCES `employees` (`id`),
   CONSTRAINT `fk_dept_qa` FOREIGN KEY (`qa_employee_id`) REFERENCES `employees` (`id`),
   CONSTRAINT `fk_dept_subhead` FOREIGN KEY (`sub_head_employee_id`) REFERENCES `employees` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -335,7 +335,7 @@ CREATE TABLE `departments` (
 
 LOCK TABLES `departments` WRITE;
 /*!40000 ALTER TABLE `departments` DISABLE KEYS */;
-INSERT INTO `departments` VALUES (1,'Management','MGMT',NULL,NULL,1,'2026-11-25 06:48:29.061985',1,0,NULL,1,NULL),(2,'Unassigned','UNASSIGNED',NULL,NULL,1,'2026-11-25 06:48:29.063987',1,0,NULL,1,NULL);
+INSERT INTO `departments` VALUES (1,'Management','MGMT',NULL,NULL,1,'2026-11-25 06:48:29.061985',1,0,NULL,1,NULL),(2,'Unassigned','UNASSIGNED',NULL,NULL,1,'2026-11-25 06:48:29.063987',1,0,NULL,1,NULL),(10,'Development','DEV',NULL,NULL,1,'2026-11-25 07:51:47.275143',0,1,NULL,1,NULL),(11,'Design','DES',NULL,NULL,1,'2026-11-25 07:51:47.275143',0,1,NULL,1,NULL),(12,'Quality Assurance','QA',NULL,NULL,1,'2026-11-25 07:51:47.276143',0,1,NULL,1,NULL),(13,'Human Resources','HR',NULL,NULL,1,'2026-11-25 07:51:47.276143',0,1,NULL,1,NULL),(14,'Sales & Marketing','MKT',NULL,NULL,1,'2026-11-25 07:51:47.277213',0,1,NULL,1,NULL),(15,'Customer Support','SUP',NULL,NULL,1,'2026-11-25 07:51:47.277213',0,1,NULL,1,NULL);
 /*!40000 ALTER TABLE `departments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -403,7 +403,7 @@ CREATE TABLE `employee_companies` (
 
 LOCK TABLES `employee_companies` WRITE;
 /*!40000 ALTER TABLE `employee_companies` DISABLE KEYS */;
-INSERT INTO `employee_companies` VALUES (10,1);
+INSERT INTO `employee_companies` VALUES (11,1);
 /*!40000 ALTER TABLE `employee_companies` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -466,7 +466,7 @@ CREATE TABLE `employees` (
   CONSTRAINT `employees_ibfk_1` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
   CONSTRAINT `employees_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
   CONSTRAINT `fk_emp_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -475,7 +475,7 @@ CREATE TABLE `employees` (
 
 LOCK TABLES `employees` WRITE;
 /*!40000 ALTER TABLE `employees` DISABLE KEYS */;
-INSERT INTO `employees` VALUES (10,10,'SW-000001','Krisha Dave',NULL,'Owner & Administrator',1,'active','2026-11-25',NULL,8.50,0,'2026-11-25 07:43:59.192509',1);
+INSERT INTO `employees` VALUES (11,11,'SW-000001','Krisha Dave',NULL,'Owner & Administrator',1,'active','2026-11-25',NULL,8.50,0,'2026-11-25 07:51:47.413198',1);
 /*!40000 ALTER TABLE `employees` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1219,7 +1219,7 @@ CREATE TABLE `system_settings` (
 
 LOCK TABLES `system_settings` WRITE;
 /*!40000 ALTER TABLE `system_settings` DISABLE KEYS */;
-INSERT INTO `system_settings` VALUES ('notification_rules_version','7',NULL,'2026-11-25 06:48:28.944854'),('rbac_seed_version','10',NULL,'2026-11-25 06:48:28.929240'),('scheduler_status','{\"scanned\": true, \"last_tick_at\": \"2026-11-25T07:43:16.134429Z\"}',NULL,'2026-11-25 07:43:16.173822');
+INSERT INTO `system_settings` VALUES ('notification_rules_version','7',NULL,'2026-11-25 06:48:28.944854'),('rbac_seed_version','10',NULL,'2026-11-25 06:48:28.929240'),('scheduler_status','{\"scanned\": true, \"last_tick_at\": \"2026-11-25T07:51:09.958810Z\"}',NULL,'2026-11-25 07:51:09.974325');
 /*!40000 ALTER TABLE `system_settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2066,7 +2066,7 @@ CREATE TABLE `user_roles` (
 
 LOCK TABLES `user_roles` WRITE;
 /*!40000 ALTER TABLE `user_roles` DISABLE KEYS */;
-INSERT INTO `user_roles` VALUES (10,8,NULL,'2026-11-25 07:43:59.192509'),(10,9,NULL,'2026-11-25 07:43:59.192509');
+INSERT INTO `user_roles` VALUES (11,8,NULL,'2026-11-25 07:51:47.415387'),(11,9,NULL,'2026-11-25 07:51:47.415387');
 /*!40000 ALTER TABLE `user_roles` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2092,7 +2092,7 @@ CREATE TABLE `users` (
   `updated_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2101,7 +2101,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (10,'krishadave485@gmail.com','$argon2id$v=19$m=65536,t=3,p=4$F368rz26WuxwVhW2FpztcA$UF5luhghJSjdQUUFX5VLfsqkCNOliYPghsDcbPTxTY8',1,0,0,0,NULL,NULL,'Asia/Kolkata','2026-11-25 07:43:59.176868','2026-11-25 07:43:59.176868');
+INSERT INTO `users` VALUES (11,'krishadave485@gmail.com','$argon2id$v=19$m=65536,t=3,p=4$5kedggv7u1E5bQhuv9N/Ew$TJTtlKw5kDbNIsLjFPkpaU0AyhAUQyBuHT8cxdjE2fo',1,0,0,0,NULL,NULL,'Asia/Kolkata','2026-11-25 07:51:47.408167','2026-11-25 07:51:47.408167');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2147,4 +2147,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-25 13:14:11
+-- Dump completed on 2026-11-25 13:21:54

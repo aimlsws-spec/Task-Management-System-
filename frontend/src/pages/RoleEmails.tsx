@@ -25,12 +25,12 @@ type Department = { id: number; name: string; code: string; company_id?: number 
 
 // Admin accounts are never created here; department heads are named on the Departments page.
 const ALL_ROLES = [
-  { value: "owner", label: "Owner" },
-  { value: "ceo", label: "CEO" },
-  { value: "manager", label: "Manager" },
-  { value: "department_head", label: "Department Head" },
-  { value: "sub_head", label: "Department SubHead" },
   { value: "employee", label: "Employee" },
+  { value: "sub_head", label: "Department SubHead" },
+  { value: "department_head", label: "Department Head" },
+  { value: "manager", label: "Manager" },
+  { value: "ceo", label: "CEO" },
+  { value: "owner", label: "Owner" },
 ];
 
 /** Employee & Role Invitations: register the email of each Owner, CEO, Manager or Employee.
@@ -43,14 +43,14 @@ export function RoleEmails() {
 
   const allowedRoles = useMemo(() => {
     if (isCeo) {
-      return ALL_ROLES.filter((r) => ["manager", "department_head", "sub_head", "employee"].includes(r.value));
+      return ALL_ROLES.filter((r) => ["employee", "sub_head", "department_head", "manager"].includes(r.value));
     }
     return ALL_ROLES;
   }, [isCeo]);
 
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState(isCeo ? "employee" : "owner");
+  const [role, setRole] = useState("employee");
   const [companyId, setCompanyId] = useState<string>("");
   const [departmentId, setDepartmentId] = useState<string>("");
 
@@ -80,7 +80,8 @@ export function RoleEmails() {
 
   useEffect(() => {
     if (companyDepartments.length > 0 && !departmentId) {
-      setDepartmentId(String(companyDepartments[0].id));
+      const firstValid = companyDepartments.find((d) => d.code !== "UNASSIGNED" && d.code !== "MGMT") || companyDepartments[0];
+      setDepartmentId(String(firstValid.id));
     }
   }, [companyDepartments, departmentId]);
 
@@ -88,7 +89,16 @@ export function RoleEmails() {
     setCompanyId(newCid);
     const cidNum = Number(newCid);
     const depts = allDepartments.filter((d) => d.company_id === cidNum || !d.company_id);
-    setDepartmentId(depts.length > 0 ? String(depts[0].id) : "");
+    const firstValid = depts.find((d) => d.code !== "UNASSIGNED" && d.code !== "MGMT") || depts[0];
+    setDepartmentId(firstValid ? String(firstValid.id) : "");
+  };
+
+  const handleRoleChange = (newRole: string) => {
+    setRole(newRole);
+    if (!["owner", "ceo"].includes(newRole) && !departmentId && companyDepartments.length > 0) {
+      const firstValid = companyDepartments.find((d) => d.code !== "UNASSIGNED" && d.code !== "MGMT") || companyDepartments[0];
+      if (firstValid) setDepartmentId(String(firstValid.id));
+    }
   };
 
   const isManagementRole = ["owner", "ceo"].includes(role);
@@ -106,7 +116,7 @@ export function RoleEmails() {
           email,
           role_code: role,
           company_id: activeCompanyId,
-          department_id: !isManagementRole && departmentId ? Number(departmentId) : undefined,
+          department_id: departmentId ? Number(departmentId) : undefined,
         },
       }),
     onSuccess: () => {
@@ -167,7 +177,7 @@ export function RoleEmails() {
             />
           </Field>
           <Field label="Role to Grant">
-            <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-48">
+            <Select value={role} onChange={(e) => handleRoleChange(e.target.value)} className="w-48">
               {allowedRoles.map((r) => (
                 <option key={r.value} value={r.value}>
                   {r.label}
@@ -186,26 +196,27 @@ export function RoleEmails() {
               </Select>
             </Field>
           )}
-          {!isManagementRole && (
-            <Field label="Department">
-              <Select
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-                className="w-52"
-                disabled={companyDepartments.length === 0}
-              >
-                {companyDepartments.length === 0 ? (
-                  <option value="">No departments</option>
-                ) : (
-                  companyDepartments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))
-                )}
-              </Select>
-            </Field>
-          )}
+          <Field label="Department">
+            <Select
+              value={departmentId}
+              onChange={(e) => setDepartmentId(e.target.value)}
+              className="w-52"
+            >
+              {isManagementRole && (
+                <option value="">Management (Executive Leadership)</option>
+              )}
+              {companyDepartments
+                .filter((d) => d.code !== "UNASSIGNED" && d.code !== "MGMT")
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              {companyDepartments.filter((d) => d.code !== "UNASSIGNED" && d.code !== "MGMT").length === 0 && !isManagementRole && (
+                <option value="" disabled>No departments configured</option>
+              )}
+            </Select>
+          </Field>
           <Button type="submit" disabled={add.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
             <Send size={15} /> {add.isPending ? "Sending..." : "Send Invitation"}
           </Button>
