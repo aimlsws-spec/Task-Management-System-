@@ -39,6 +39,7 @@ class SignupIn(Strict):
     email: EmailStr
     password: str = Field(max_length=200)
     company_id: int | None = None
+    department_id: int | None = None
 
 
 @router.post("/signup", status_code=201)
@@ -48,7 +49,15 @@ def signup(body: SignupIn, request: Request, db: Session = DB):
     from app.modules.org import admin_service
 
     ratelimit.check(f"signup:{request.client.host if request.client else '?'}", 5)
-    emp = admin_service.signup(db, body.full_name, body.email, body.password, request, company_id=body.company_id)
+    emp = admin_service.signup(
+        db,
+        body.full_name,
+        body.email,
+        body.password,
+        request,
+        company_id=body.company_id,
+        department_id=body.department_id,
+    )
     if otp.enabled():
         user = db.get(service.User, emp.user_id)
         db.commit()  # the account exists even if the mail provider is down; they can sign in later

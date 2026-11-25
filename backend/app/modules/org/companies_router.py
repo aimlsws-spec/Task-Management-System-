@@ -67,11 +67,29 @@ def _company_dict(db, c: Company) -> dict:
 
 @router.get("/public")
 def list_public_companies(db: Session = Depends(get_db)):
-    """Public list of active companies so that people signing up can choose their company."""
+    """Public list of active companies and their active departments so that people signing up can choose their company and department."""
     rows = db.scalars(
         select(Company).where(Company.is_active.is_(True)).order_by(Company.name)
     ).all()
-    return [{"id": c.id, "name": c.name, "code": c.code, "logo_url": c.logo_url} for c in rows]
+    res = []
+    for c in rows:
+        depts = db.scalars(
+            select(Department)
+            .where(
+                (Department.company_id == c.id) | (Department.company_id.is_(None)),
+                Department.is_active.is_(True),
+                Department.is_system.is_(False),
+            )
+            .order_by(Department.name)
+        ).all()
+        res.append({
+            "id": c.id,
+            "name": c.name,
+            "code": c.code,
+            "logo_url": c.logo_url,
+            "departments": [{"id": d.id, "name": d.name, "code": d.code} for d in depts],
+        })
+    return res
 
 
 @router.get("")

@@ -190,9 +190,11 @@ def employee_dict(db: Session, e: Employee) -> dict:
     u = db.get(User, e.user_id)
     cids = employee_company_ids(db, e)
     comp = db.get(Company, e.company_id) if getattr(e, "company_id", None) else None
+    dept = db.get(Department, e.department_id) if getattr(e, "department_id", None) else None
     return {
         "id": e.id, "user_id": e.user_id, "employee_code": e.employee_code, "full_name": e.full_name,
         "email": u.email if u else None, "phone": e.phone, "job_title": e.job_title, "department_id": e.department_id,
+        "department_name": dept.name if dept else None,
         "company_id": getattr(e, "company_id", 1),
         "company_name": comp.name if comp else None,
         "company_ids": sorted(cids) if cids is not None else [],

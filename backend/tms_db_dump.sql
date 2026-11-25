@@ -40,7 +40,7 @@ CREATE TABLE `activity_logs` (
   KEY `ix_al_actor` (`actor_user_id`,`created_at`),
   KEY `ix_al_entity` (`entity_type`,`entity_id`,`created_at`),
   KEY `ix_al_task` (`task_id`,`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -49,7 +49,6 @@ CREATE TABLE `activity_logs` (
 
 LOCK TABLES `activity_logs` WRITE;
 /*!40000 ALTER TABLE `activity_logs` DISABLE KEYS */;
-INSERT INTO `activity_logs` VALUES (1,2,'EMPLOYEE_JOIN_REQUESTED','employee','2',NULL,'null','{\"email\": \"test_applicant@example.com\", \"company_id\": 1, \"company_name\": \"SeaWind Solution\"}','testclient','testclient','2617434fab3b4481991aef4402ad01d5','2026-11-25 06:48:37.462726'),(2,2,'AUTH_OTP_SENT','user','2',NULL,'null','null','testclient','testclient','2617434fab3b4481991aef4402ad01d5','2026-11-25 06:48:37.479921'),(3,3,'EMPLOYEE_JOIN_REQUESTED','employee','3',NULL,'null','{\"email\": \"test_applicant@example.com\", \"company_id\": 1, \"company_name\": \"SeaWind Solution\"}','testclient','testclient','bcae1a5aa66a43a4a37dec2145875226','2026-11-25 06:49:23.502939'),(4,3,'AUTH_OTP_SENT','user','3',NULL,'null','null','testclient','testclient','bcae1a5aa66a43a4a37dec2145875226','2026-11-25 06:49:23.518572'),(5,3,'AUTH_OTP_SENT','user','3',NULL,'null','null','testclient','testclient','d94e84da66a048d6920ea20a9c69b8f7','2026-11-25 06:49:23.647927'),(6,1,'AUTH_OTP_SENT','user','1',NULL,'null','null','testclient','testclient','ab464945efa94a1a92da1ddf735a3112','2026-11-25 06:49:23.855784'),(7,1,'EMPLOYEE_APPROVED','employee','3',NULL,'null','{\"status\": \"active\", \"company_id\": 1, \"department_id\": 1}','testclient','testclient','48fb85638aed4906af83ba288d82bb47','2026-11-25 06:49:23.921407');
 /*!40000 ALTER TABLE `activity_logs` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -72,7 +71,7 @@ CREATE TABLE `alembic_version` (
 
 LOCK TABLES `alembic_version` WRITE;
 /*!40000 ALTER TABLE `alembic_version` DISABLE KEYS */;
-INSERT INTO `alembic_version` VALUES ('0018');
+INSERT INTO `alembic_version` VALUES ('0019');
 /*!40000 ALTER TABLE `alembic_version` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -327,7 +326,7 @@ CREATE TABLE `departments` (
   CONSTRAINT `fk_dept_head` FOREIGN KEY (`head_employee_id`) REFERENCES `employees` (`id`),
   CONSTRAINT `fk_dept_qa` FOREIGN KEY (`qa_employee_id`) REFERENCES `employees` (`id`),
   CONSTRAINT `fk_dept_subhead` FOREIGN KEY (`sub_head_employee_id`) REFERENCES `employees` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -369,7 +368,7 @@ CREATE TABLE `email_logs` (
   KEY `ix_email_status` (`status`,`next_attempt_at`),
   CONSTRAINT `email_logs_ibfk_1` FOREIGN KEY (`notification_id`) REFERENCES `notifications` (`id`),
   CONSTRAINT `email_logs_ibfk_2` FOREIGN KEY (`to_user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -378,7 +377,6 @@ CREATE TABLE `email_logs` (
 
 LOCK TABLES `email_logs` WRITE;
 /*!40000 ALTER TABLE `email_logs` DISABLE KEYS */;
-INSERT INTO `email_logs` VALUES (1,NULL,1,'krishadave485@gmail.com','[SeaWind] Join Request: Test Applicant wants to join SeaWind Solution','Join Request: Test Applicant wants to join SeaWind Solution\n\nTest Applicant (test_applicant@example.com) has signed up and requested permission to join the SeaWind Solution team.\n\nAs an authorized CEO / Owner, please review the application and approve or decline access.\n\nReview Join Request: http://localhost:5173/employees\n\n— SeaWind Task Management\nRegeneration of IT Services\nhttp://localhost:5173','<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Join Request: Test Applicant wants to join SeaWind Solution</title>\n</head>\n<body style=\"margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased;\">\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f1f5f9;padding:32px 16px;\">\n    <tr>\n      <td align=\"center\">\n        <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:580px;background-color:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);\">\n          \n          <!-- Top Brand Accent Bar -->\n          <tr>\n            <td style=\"height:4px;background:linear-gradient(90deg,#1e3a8a 0%,#1f55c4 50%,#0284c7 100%);line-height:4px;font-size:4px;\">&nbsp;</td>\n          </tr>\n\n          <!-- Header with SeaWind Logo -->\n          <tr>\n            <td style=\"padding:24px 32px 18px;border-bottom:1px solid #f1f5f9;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td align=\"left\" style=\"vertical-align:middle;\">\n                    <a href=\"http://localhost:5173\" target=\"_blank\" style=\"text-decoration:none;display:inline-block;\">\n                      <img src=\"cid:seawind_logo\" alt=\"SeaWind - Regeneration of IT Services\" width=\"165\" style=\"display:block;width:165px;max-width:165px;height:auto;border:0;outline:none;\" />\n                    </a>\n                  </td>\n                  <td align=\"right\" style=\"vertical-align:middle;\">\n                    <span style=\"display:inline-block;background-color:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:4px 10px;border-radius:9999px;border:1px solid #bfdbfe;\">\n                      Task Management\n                    </span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          \n\n          <!-- Content Body -->\n          <tr>\n            <td style=\"padding:28px 32px 24px;\">\n              <h1 style=\"margin:0 0 14px;font-size:20px;font-weight:700;line-height:1.35;color:#0f172a;\">\n                Join Request: Test Applicant wants to join SeaWind Solution\n              </h1>\n              <div style=\"font-size:14px;line-height:1.65;color:#334155;white-space:pre-wrap;margin:0 0 16px;\">Test Applicant (test_applicant@example.com) has signed up and requested permission to join the SeaWind Solution team.\n\nAs an authorized CEO / Owner, please review the application and approve or decline access.</div>\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:24px 0 8px;\"><tr><td style=\"border-radius:8px;background-color:#1f55c4;\"><a href=\"http://localhost:5173/employees\" target=\"_blank\" style=\"display:inline-block;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#1f55c4;box-shadow:0 2px 4px rgba(31,85,196,0.25);\">Review Join Request &rarr;</a></td></tr></table>\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"padding:20px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td style=\"font-size:12px;line-height:1.6;color:#64748b;\">\n                    <strong style=\"color:#334155;\">SeaWind Solution</strong> &bull; Regeneration of IT Services<br />\n                    Workspace: <a href=\"http://localhost:5173\" target=\"_blank\" style=\"color:#1f55c4;text-decoration:none;\">localhost:5173</a>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"padding-top:10px;font-size:11px;line-height:1.5;color:#94a3b8;\">\n                    This is an automated operational notification regarding your tasks and assignments. Please do not reply directly to this email.\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>',1,'sent',0,'2026-11-25 06:48:37.414309',NULL,'smtp','2026-11-25 06:48:37.414309','2026-11-25 06:48:37.447088'),(3,1,1,'krishadave485@gmail.com','[SeaWind] Join Request: Test Applicant wants to join SeaWind Solution','Join Request: Test Applicant wants to join SeaWind Solution\n\nTest Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.\n\nOpen SeaWind: http://localhost:5173/\n\n— SeaWind Task Management\nRegeneration of IT Services\nhttp://localhost:5173','<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Join Request: Test Applicant wants to join SeaWind Solution</title>\n</head>\n<body style=\"margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased;\">\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f1f5f9;padding:32px 16px;\">\n    <tr>\n      <td align=\"center\">\n        <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:580px;background-color:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);\">\n          \n          <!-- Top Brand Accent Bar -->\n          <tr>\n            <td style=\"height:4px;background:linear-gradient(90deg,#1e3a8a 0%,#1f55c4 50%,#0284c7 100%);line-height:4px;font-size:4px;\">&nbsp;</td>\n          </tr>\n\n          <!-- Header with SeaWind Logo -->\n          <tr>\n            <td style=\"padding:24px 32px 18px;border-bottom:1px solid #f1f5f9;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td align=\"left\" style=\"vertical-align:middle;\">\n                    <a href=\"http://localhost:5173\" target=\"_blank\" style=\"text-decoration:none;display:inline-block;\">\n                      <img src=\"cid:seawind_logo\" alt=\"SeaWind - Regeneration of IT Services\" width=\"165\" style=\"display:block;width:165px;max-width:165px;height:auto;border:0;outline:none;\" />\n                    </a>\n                  </td>\n                  <td align=\"right\" style=\"vertical-align:middle;\">\n                    <span style=\"display:inline-block;background-color:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:4px 10px;border-radius:9999px;border:1px solid #bfdbfe;\">\n                      Task Management\n                    </span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          <tr><td style=\"padding:0 32px 16px;\"><div style=\"display:inline-block;background-color:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;\"><span style=\"color:#b91c1c;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;\">Attention Required</span></div></td></tr>\n\n          <!-- Content Body -->\n          <tr>\n            <td style=\"padding:28px 32px 24px;\">\n              <h1 style=\"margin:0 0 14px;font-size:20px;font-weight:700;line-height:1.35;color:#0f172a;\">\n                Join Request: Test Applicant wants to join SeaWind Solution\n              </h1>\n              <div style=\"font-size:14px;line-height:1.65;color:#334155;white-space:pre-wrap;margin:0 0 16px;\">Test Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.</div>\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:24px 0 8px;\"><tr><td style=\"border-radius:8px;background-color:#1f55c4;\"><a href=\"http://localhost:5173/\" target=\"_blank\" style=\"display:inline-block;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#1f55c4;box-shadow:0 2px 4px rgba(31,85,196,0.25);\">Open SeaWind &rarr;</a></td></tr></table>\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"padding:20px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td style=\"font-size:12px;line-height:1.6;color:#64748b;\">\n                    <strong style=\"color:#334155;\">SeaWind Solution</strong> &bull; Regeneration of IT Services<br />\n                    Workspace: <a href=\"http://localhost:5173\" target=\"_blank\" style=\"color:#1f55c4;text-decoration:none;\">localhost:5173</a>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"padding-top:10px;font-size:11px;line-height:1.5;color:#94a3b8;\">\n                    This is an automated operational notification regarding your tasks and assignments. Please do not reply directly to this email.\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>',1,'sent',0,'2026-11-25 06:49:23.264997',NULL,'smtp','2026-11-25 06:49:23.264997','2026-11-25 06:49:23.264997'),(4,NULL,1,'krishadave485@gmail.com','[SeaWind] Join Request: Test Applicant wants to join SeaWind Solution','Join Request: Test Applicant wants to join SeaWind Solution\n\nTest Applicant (test_applicant@example.com) has signed up and requested permission to join the SeaWind Solution team.\n\nAs an authorized CEO / Owner, please review the application and approve or decline access.\n\nReview Join Request: http://localhost:5173/employees\n\n— SeaWind Task Management\nRegeneration of IT Services\nhttp://localhost:5173','<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Join Request: Test Applicant wants to join SeaWind Solution</title>\n</head>\n<body style=\"margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased;\">\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f1f5f9;padding:32px 16px;\">\n    <tr>\n      <td align=\"center\">\n        <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:580px;background-color:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);\">\n          \n          <!-- Top Brand Accent Bar -->\n          <tr>\n            <td style=\"height:4px;background:linear-gradient(90deg,#1e3a8a 0%,#1f55c4 50%,#0284c7 100%);line-height:4px;font-size:4px;\">&nbsp;</td>\n          </tr>\n\n          <!-- Header with SeaWind Logo -->\n          <tr>\n            <td style=\"padding:24px 32px 18px;border-bottom:1px solid #f1f5f9;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td align=\"left\" style=\"vertical-align:middle;\">\n                    <a href=\"http://localhost:5173\" target=\"_blank\" style=\"text-decoration:none;display:inline-block;\">\n                      <img src=\"cid:seawind_logo\" alt=\"SeaWind - Regeneration of IT Services\" width=\"165\" style=\"display:block;width:165px;max-width:165px;height:auto;border:0;outline:none;\" />\n                    </a>\n                  </td>\n                  <td align=\"right\" style=\"vertical-align:middle;\">\n                    <span style=\"display:inline-block;background-color:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:4px 10px;border-radius:9999px;border:1px solid #bfdbfe;\">\n                      Task Management\n                    </span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          \n\n          <!-- Content Body -->\n          <tr>\n            <td style=\"padding:28px 32px 24px;\">\n              <h1 style=\"margin:0 0 14px;font-size:20px;font-weight:700;line-height:1.35;color:#0f172a;\">\n                Join Request: Test Applicant wants to join SeaWind Solution\n              </h1>\n              <div style=\"font-size:14px;line-height:1.65;color:#334155;white-space:pre-wrap;margin:0 0 16px;\">Test Applicant (test_applicant@example.com) has signed up and requested permission to join the SeaWind Solution team.\n\nAs an authorized CEO / Owner, please review the application and approve or decline access.</div>\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:24px 0 8px;\"><tr><td style=\"border-radius:8px;background-color:#1f55c4;\"><a href=\"http://localhost:5173/employees\" target=\"_blank\" style=\"display:inline-block;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#1f55c4;box-shadow:0 2px 4px rgba(31,85,196,0.25);\">Review Join Request &rarr;</a></td></tr></table>\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"padding:20px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td style=\"font-size:12px;line-height:1.6;color:#64748b;\">\n                    <strong style=\"color:#334155;\">SeaWind Solution</strong> &bull; Regeneration of IT Services<br />\n                    Workspace: <a href=\"http://localhost:5173\" target=\"_blank\" style=\"color:#1f55c4;text-decoration:none;\">localhost:5173</a>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"padding-top:10px;font-size:11px;line-height:1.5;color:#94a3b8;\">\n                    This is an automated operational notification regarding your tasks and assignments. Please do not reply directly to this email.\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>',1,'sent',0,'2026-11-25 06:49:23.483712',NULL,'smtp','2026-11-25 06:49:23.486717','2026-11-25 06:49:23.486717'),(7,2,1,'krishadave485@gmail.com','[SeaWind] Join Request: Test Applicant wants to join SeaWind Solution','Join Request: Test Applicant wants to join SeaWind Solution\n\nTest Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.\n\nOpen SeaWind: http://localhost:5173/\n\n— SeaWind Task Management\nRegeneration of IT Services\nhttp://localhost:5173','<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Join Request: Test Applicant wants to join SeaWind Solution</title>\n</head>\n<body style=\"margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased;\">\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f1f5f9;padding:32px 16px;\">\n    <tr>\n      <td align=\"center\">\n        <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:580px;background-color:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);\">\n          \n          <!-- Top Brand Accent Bar -->\n          <tr>\n            <td style=\"height:4px;background:linear-gradient(90deg,#1e3a8a 0%,#1f55c4 50%,#0284c7 100%);line-height:4px;font-size:4px;\">&nbsp;</td>\n          </tr>\n\n          <!-- Header with SeaWind Logo -->\n          <tr>\n            <td style=\"padding:24px 32px 18px;border-bottom:1px solid #f1f5f9;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td align=\"left\" style=\"vertical-align:middle;\">\n                    <a href=\"http://localhost:5173\" target=\"_blank\" style=\"text-decoration:none;display:inline-block;\">\n                      <img src=\"cid:seawind_logo\" alt=\"SeaWind - Regeneration of IT Services\" width=\"165\" style=\"display:block;width:165px;max-width:165px;height:auto;border:0;outline:none;\" />\n                    </a>\n                  </td>\n                  <td align=\"right\" style=\"vertical-align:middle;\">\n                    <span style=\"display:inline-block;background-color:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:4px 10px;border-radius:9999px;border:1px solid #bfdbfe;\">\n                      Task Management\n                    </span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          <tr><td style=\"padding:0 32px 16px;\"><div style=\"display:inline-block;background-color:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;\"><span style=\"color:#b91c1c;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;\">Attention Required</span></div></td></tr>\n\n          <!-- Content Body -->\n          <tr>\n            <td style=\"padding:28px 32px 24px;\">\n              <h1 style=\"margin:0 0 14px;font-size:20px;font-weight:700;line-height:1.35;color:#0f172a;\">\n                Join Request: Test Applicant wants to join SeaWind Solution\n              </h1>\n              <div style=\"font-size:14px;line-height:1.65;color:#334155;white-space:pre-wrap;margin:0 0 16px;\">Test Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.</div>\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:24px 0 8px;\"><tr><td style=\"border-radius:8px;background-color:#1f55c4;\"><a href=\"http://localhost:5173/\" target=\"_blank\" style=\"display:inline-block;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#1f55c4;box-shadow:0 2px 4px rgba(31,85,196,0.25);\">Open SeaWind &rarr;</a></td></tr></table>\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"padding:20px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;\">\n              <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                <tr>\n                  <td style=\"font-size:12px;line-height:1.6;color:#64748b;\">\n                    <strong style=\"color:#334155;\">SeaWind Solution</strong> &bull; Regeneration of IT Services<br />\n                    Workspace: <a href=\"http://localhost:5173\" target=\"_blank\" style=\"color:#1f55c4;text-decoration:none;\">localhost:5173</a>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"padding-top:10px;font-size:11px;line-height:1.5;color:#94a3b8;\">\n                    This is an automated operational notification regarding your tasks and assignments. Please do not reply directly to this email.\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>',1,'sent',0,'2026-11-25 06:49:23.941473',NULL,'smtp','2026-11-25 06:49:23.941473','2026-11-25 06:49:23.947473');
 /*!40000 ALTER TABLE `email_logs` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -405,7 +403,7 @@ CREATE TABLE `employee_companies` (
 
 LOCK TABLES `employee_companies` WRITE;
 /*!40000 ALTER TABLE `employee_companies` DISABLE KEYS */;
-INSERT INTO `employee_companies` VALUES (1,1);
+INSERT INTO `employee_companies` VALUES (10,1);
 /*!40000 ALTER TABLE `employee_companies` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -468,7 +466,7 @@ CREATE TABLE `employees` (
   CONSTRAINT `employees_ibfk_1` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
   CONSTRAINT `employees_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
   CONSTRAINT `fk_emp_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -477,7 +475,7 @@ CREATE TABLE `employees` (
 
 LOCK TABLES `employees` WRITE;
 /*!40000 ALTER TABLE `employees` DISABLE KEYS */;
-INSERT INTO `employees` VALUES (1,1,'SW-000001','Krisha Dave',NULL,'Owner & Administrator',1,'active','2026-11-25',NULL,8.50,0,'2026-11-25 06:48:29.170301',1);
+INSERT INTO `employees` VALUES (10,10,'SW-000001','Krisha Dave',NULL,'Owner & Administrator',1,'active','2026-11-25',NULL,8.50,0,'2026-11-25 07:43:59.192509',1);
 /*!40000 ALTER TABLE `employees` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -556,7 +554,7 @@ CREATE TABLE `login_otps` (
   UNIQUE KEY `challenge_hash` (`challenge_hash`),
   KEY `ix_login_otps_user_id` (`user_id`),
   CONSTRAINT `login_otps_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -565,7 +563,6 @@ CREATE TABLE `login_otps` (
 
 LOCK TABLES `login_otps` WRITE;
 /*!40000 ALTER TABLE `login_otps` DISABLE KEYS */;
-INSERT INTO `login_otps` VALUES (4,1,'b4b49acba8ac6e4c52a10603e7a97ac748b9741148510e68da7b1cd434405606','5de14a5f8a594fe6480b6328afbffe23a889fcf9fdec591e7c302a7ddb10f638','login','2026-11-25 06:59:24',0,1,'2026-11-25 06:49:24',NULL,'2026-11-25 06:49:24');
 /*!40000 ALTER TABLE `login_otps` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -677,7 +674,7 @@ CREATE TABLE `notifications` (
   UNIQUE KEY `uq_notification_dedupe` (`user_id`,`dedupe_key`),
   KEY `ix_notif_user` (`user_id`,`is_read`,`created_at`),
   CONSTRAINT `notifications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -686,7 +683,6 @@ CREATE TABLE `notifications` (
 
 LOCK TABLES `notifications` WRITE;
 /*!40000 ALTER TABLE `notifications` DISABLE KEYS */;
-INSERT INTO `notifications` VALUES (1,1,'EMPLOYEE_JOIN_REQUEST','Join Request: Test Applicant wants to join SeaWind Solution','Test Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.',NULL,'[\"ROLE:admin\", \"ROLE:owner\"]','EMPLOYEE_JOIN_REQUEST:1',1,0,NULL,'2026-11-25 06:49:23.260323'),(2,1,'EMPLOYEE_JOIN_REQUEST','Join Request: Test Applicant wants to join SeaWind Solution','Test Applicant (test_applicant@example.com) signed up and requested permission to join SeaWind Solution. Please review and approve or decline this request.',NULL,'[\"ROLE:admin\", \"ROLE:owner\"]','EMPLOYEE_JOIN_REQUEST:2',1,0,NULL,'2026-11-25 06:49:23.940471');
 /*!40000 ALTER TABLE `notifications` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -712,7 +708,7 @@ CREATE TABLE `outbox_events` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_outbox_dedupe` (`dedupe_key`),
   KEY `ix_outbox_status` (`status`,`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1116,13 +1112,16 @@ CREATE TABLE `role_invites` (
   `claimed_user_id` bigint DEFAULT NULL,
   `claimed_at` datetime(6) DEFAULT NULL,
   `company_id` bigint DEFAULT NULL,
+  `department_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`),
   KEY `claimed_user_id` (`claimed_user_id`),
   KEY `created_by` (`created_by`),
   KEY `role_id` (`role_id`),
   KEY `fk_inv_company` (`company_id`),
+  KEY `fk_role_invites_dept` (`department_id`),
   CONSTRAINT `fk_inv_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
+  CONSTRAINT `fk_role_invites_dept` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`) ON DELETE SET NULL,
   CONSTRAINT `role_invites_ibfk_1` FOREIGN KEY (`claimed_user_id`) REFERENCES `users` (`id`),
   CONSTRAINT `role_invites_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`),
   CONSTRAINT `role_invites_ibfk_3` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
@@ -1220,7 +1219,7 @@ CREATE TABLE `system_settings` (
 
 LOCK TABLES `system_settings` WRITE;
 /*!40000 ALTER TABLE `system_settings` DISABLE KEYS */;
-INSERT INTO `system_settings` VALUES ('notification_rules_version','7',NULL,'2026-11-25 06:48:28.944854'),('rbac_seed_version','10',NULL,'2026-11-25 06:48:28.929240'),('scheduler_status','{\"scanned\": false, \"last_tick_at\": \"2026-11-25T06:49:23.930181Z\"}',NULL,'2026-11-25 06:49:23.964171');
+INSERT INTO `system_settings` VALUES ('notification_rules_version','7',NULL,'2026-11-25 06:48:28.944854'),('rbac_seed_version','10',NULL,'2026-11-25 06:48:28.929240'),('scheduler_status','{\"scanned\": true, \"last_tick_at\": \"2026-11-25T07:43:16.134429Z\"}',NULL,'2026-11-25 07:43:16.173822');
 /*!40000 ALTER TABLE `system_settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2067,7 +2066,7 @@ CREATE TABLE `user_roles` (
 
 LOCK TABLES `user_roles` WRITE;
 /*!40000 ALTER TABLE `user_roles` DISABLE KEYS */;
-INSERT INTO `user_roles` VALUES (1,8,NULL,'2026-11-25 06:48:29.170301'),(1,9,NULL,'2026-11-25 06:48:29.170301');
+INSERT INTO `user_roles` VALUES (10,8,NULL,'2026-11-25 07:43:59.192509'),(10,9,NULL,'2026-11-25 07:43:59.192509');
 /*!40000 ALTER TABLE `user_roles` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2093,7 +2092,7 @@ CREATE TABLE `users` (
   `updated_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2102,7 +2101,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'krishadave485@gmail.com','$argon2id$v=19$m=65536,t=3,p=4$Evoy9YwnP5QNrMhFO00kJg$QCG23nGkvETzWONQtGj5lJZROunjwkrdZ6jeeVis+aU',1,0,0,0,NULL,NULL,'Asia/Kolkata','2026-11-25 06:48:29.170301','2026-11-25 06:48:29.170301');
+INSERT INTO `users` VALUES (10,'krishadave485@gmail.com','$argon2id$v=19$m=65536,t=3,p=4$F368rz26WuxwVhW2FpztcA$UF5luhghJSjdQUUFX5VLfsqkCNOliYPghsDcbPTxTY8',1,0,0,0,NULL,NULL,'Asia/Kolkata','2026-11-25 07:43:59.176868','2026-11-25 07:43:59.176868');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2148,4 +2147,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-25 12:19:57
+-- Dump completed on 2026-11-25 13:14:11

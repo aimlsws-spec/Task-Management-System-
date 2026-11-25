@@ -13,12 +13,15 @@ type Invite = {
   role_name: string;
   company_id?: number | null;
   company_name?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   claimed: boolean;
   claimed_at: string | null;
   created_at: string;
 };
 
 type Company = { id: number; name: string; code: string };
+type Department = { id: number; name: string; code: string; company_id?: number | null };
 
 // Admin accounts are never created here; department heads are named on the Departments page.
 const ALL_ROLES = [
@@ -26,11 +29,12 @@ const ALL_ROLES = [
   { value: "ceo", label: "CEO" },
   { value: "manager", label: "Manager" },
   { value: "department_head", label: "Department Head" },
+  { value: "sub_head", label: "Department SubHead" },
   { value: "employee", label: "Employee" },
 ];
 
 /** Employee & Role Invitations: register the email of each Owner, CEO, Manager or Employee.
- *  When that person signs up with this email, they receive their role and company scope automatically. */
+ *  When that person signs up with this email, they receive their role, company and department automatically. */
 export function RoleEmails() {
   const { me, can } = useAuth();
   const isOwner = me?.roles?.includes("owner");
@@ -39,7 +43,7 @@ export function RoleEmails() {
 
   const allowedRoles = useMemo(() => {
     if (isCeo) {
-      return ALL_ROLES.filter((r) => ["manager", "department_head", "employee"].includes(r.value));
+      return ALL_ROLES.filter((r) => ["manager", "department_head", "sub_head", "employee"].includes(r.value));
     }
     return ALL_ROLES;
   }, [isCeo]);
@@ -48,19 +52,46 @@ export function RoleEmails() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState(isCeo ? "employee" : "owner");
   const [companyId, setCompanyId] = useState<string>("");
+  const [departmentId, setDepartmentId] = useState<string>("");
 
   const companiesQuery = useQuery({
     queryKey: ["companies"],
     queryFn: () => api<Company[]>("/companies"),
   });
-
   const companies = companiesQuery.data || [];
+
+  const departmentsQuery = useQuery({
+    queryKey: ["departments"],
+    queryFn: () => api<Department[]>("/departments"),
+  });
+  const allDepartments = departmentsQuery.data || [];
 
   useEffect(() => {
     if (companies.length > 0 && !companyId) {
       setCompanyId(String(companies[0].id));
     }
   }, [companies, companyId]);
+
+  const activeCompanyId = Number(companyId) || (companies.length > 0 ? companies[0].id : 1);
+
+  const companyDepartments = useMemo(() => {
+    return allDepartments.filter((d) => d.company_id === activeCompanyId || !d.company_id);
+  }, [allDepartments, activeCompanyId]);
+
+  useEffect(() => {
+    if (companyDepartments.length > 0 && !departmentId) {
+      setDepartmentId(String(companyDepartments[0].id));
+    }
+  }, [companyDepartments, departmentId]);
+
+  const handleCompanyChange = (newCid: string) => {
+    setCompanyId(newCid);
+    const cidNum = Number(newCid);
+    const depts = allDepartments.filter((d) => d.company_id === cidNum || !d.company_id);
+    setDepartmentId(depts.length > 0 ? String(depts[0].id) : "");
+  };
+
+  const isManagementRole = ["owner", "ceo"].includes(role);
 
   const list = useQuery({ queryKey: ["role-invites"], queryFn: () => api<Invite[]>("/role-invites") });
   const refresh = () => {
@@ -74,7 +105,8 @@ export function RoleEmails() {
         body: {
           email,
           role_code: role,
-          company_id: Number(companyId) || (companies.length > 0 ? companies[0].id : 1),
+          company_id: activeCompanyId,
+          department_id: !isManagementRole && departmentId ? Number(departmentId) : undefined,
         },
       }),
     onSuccess: () => {
@@ -145,7 +177,7 @@ export function RoleEmails() {
           </Field>
           {companies.length > 0 && (
             <Field label="Company">
-              <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="w-52">
+              <Select value={companyId} onChange={(e) => handleCompanyChange(e.target.value)} className="w-52">
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.code.toUpperCase()})
@@ -154,14 +186,33 @@ export function RoleEmails() {
               </Select>
             </Field>
           )}
+          {!isManagementRole && (
+            <Field label="Department">
+              <Select
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                className="w-52"
+                disabled={companyDepartments.length === 0}
+              >
+                {companyDepartments.length === 0 ? (
+                  <option value="">No departments</option>
+                ) : (
+                  companyDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))
+                )}
+              </Select>
+            </Field>
+          )}
           <Button type="submit" disabled={add.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
             <Send size={15} /> {add.isPending ? "Sending..." : "Send Invitation"}
           </Button>
         </form>
         <p className="mt-3 text-xs text-slate-500">
-          Owner, CEO and Manager skip the department questions and join Management. The CEO reports to the Owner; a Manager reports to the CEO.
-          Share the sign-up link only with the right person: whoever signs up with the registered email first gets the role.
-          If that person already has an account, the role and company are granted immediately and they must sign in again.
+          Owner and CEO join Management automatically. For staff, department heads, and managers, the selected department and company scope are applied automatically upon sign-up.
+          If that person already has an account, the role, company, and department are granted immediately.
         </p>
         <div className="mt-3">
           <ErrorNote error={add.error ?? revoke.error ?? resend.error} />
@@ -184,6 +235,7 @@ export function RoleEmails() {
                 <th className="p-3">Email</th>
                 <th className="p-3">Role</th>
                 <th className="p-3">Company</th>
+                <th className="p-3">Department</th>
                 <th className="p-3">Status</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
@@ -199,6 +251,9 @@ export function RoleEmails() {
                   </td>
                   <td className="p-3 text-xs text-slate-600">
                     {i.company_name || `Company #${i.company_id || 1}`}
+                  </td>
+                  <td className="p-3 text-xs text-slate-600">
+                    {i.department_name || (["owner", "ceo"].includes(i.role_code) ? "Management" : "—")}
                   </td>
                   <td className="p-3">
                     {i.claimed ? <Badge tone="green">Signed up</Badge> : <Badge tone="orange">Waiting for sign-up</Badge>}

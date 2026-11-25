@@ -161,6 +161,7 @@ class RoleInvite(Base):
 
     id: Mapped[int] = mapped_column(PK, primary_key=True)
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

@@ -60,7 +60,15 @@ def regroup_department_under_head(db: Session, p: Principal, dept: Department, r
     return moved
 
 
-def signup(db: Session, full_name: str, email: str, password: str, request: Request | None, company_id: int | None = None) -> Employee:
+def signup(
+    db: Session,
+    full_name: str,
+    email: str,
+    password: str,
+    request: Request | None,
+    company_id: int | None = None,
+    department_id: int | None = None,
+) -> Employee:
     email = email.strip().lower()
     if db.scalar(select(User.id).where(User.email == email)):
         raise Conflict("EMAIL_EXISTS", "An account with this email already exists. Try signing in.")
@@ -101,7 +109,29 @@ def signup(db: Session, full_name: str, email: str, password: str, request: Requ
         if comp is None or not comp.is_active:
             raise AppError("INVALID_COMPANY", "Selected company not found or inactive", 422)
 
+    dept = None
+    if department_id is not None:
+        dept = db.get(Department, department_id)
+        if dept is None or not dept.is_active or dept.is_system:
+            raise AppError("INVALID_DEPARTMENT", "Selected department not found or inactive", 422)
+        if dept.company_id is not None and dept.company_id != comp.id:
+            raise AppError("INVALID_DEPARTMENT", "Selected department does not belong to this company", 422)
+    else:
+        available_depts = db.scalars(
+            select(Department)
+            .where(
+                (Department.company_id == comp.id) | (Department.company_id.is_(None)),
+                Department.is_active.is_(True),
+                Department.is_system.is_(False),
+            )
+            .order_by(Department.id)
+        ).all()
+        if available_depts:
+            dept = available_depts[0]
+
     emp.company_id = comp.id
+    if dept is not None:
+        emp.department_id = dept.id
     emp.status = "pending_approval"
     db.add(EmployeeCompany(employee_id=emp.id, company_id=comp.id))
     db.flush()
@@ -113,6 +143,8 @@ def signup(db: Session, full_name: str, email: str, password: str, request: Requ
             "email": email,
             "company_id": comp.id,
             "company_name": comp.name,
+            "department_id": dept.id if dept else None,
+            "department_name": dept.name if dept else None,
             "user_id": user.id,
             "employee_id": emp.id,
         }
@@ -132,14 +164,28 @@ def signup(db: Session, full_name: str, email: str, password: str, request: Requ
         .where(CompanyCEO.company_id == comp.id, User.is_active.is_(True))
     ).all()
     notified = set()
+    dept_name = dept.name if dept else None
     for u_id, u_email in list(owners) + list(ceos):
         if u_email not in notified:
             notified.add(u_email)
-            direct.join_request(db, u_email, u_id, full_name, email, comp.name)
+            direct.join_request(db, u_email, u_id, full_name, email, comp.name, dept_name)
 
-    direct.join_request_submitted(db, email, user.id, full_name, comp.name)
-    audit.log(db, user.id, "EMPLOYEE_JOIN_REQUESTED", "employee", emp.id,
-              after={"email": email, "company_id": comp.id, "company_name": comp.name}, request=request)
+    direct.join_request_submitted(db, email, user.id, full_name, comp.name, dept_name)
+    audit.log(
+        db,
+        user.id,
+        "EMPLOYEE_JOIN_REQUESTED",
+        "employee",
+        emp.id,
+        after={
+            "email": email,
+            "company_id": comp.id,
+            "company_name": comp.name,
+            "department_id": dept.id if dept else None,
+            "department_name": dept_name,
+        },
+        request=request,
+    )
     return emp
 
 

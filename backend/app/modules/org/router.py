@@ -277,6 +277,7 @@ def create_employee(body: EmployeeIn, request: Request, p: Principal = Depends(r
 class ApproveIn(Strict):
     department_id: int | None = None
     job_title: str | None = None
+    reports_to_id: int | None = None
 
 
 @router.get("/employees/pending-approvals")
@@ -363,13 +364,17 @@ def approve_employee(emp_id: int, request: Request, body: ApproveIn | None = Non
     p.db.flush()
 
     dept = p.db.get(Department, emp.department_id)
-    if dept:
-        boss = service.default_manager_id(p.db, dept, exclude_employee_id=emp.id)
-        if boss:
-            try:
-                service.set_manager(p.db, p, emp.id, boss, request, audit_it=False)
-            except Exception:
-                pass
+    target_boss = None
+    if body and body.reports_to_id is not None:
+        target_boss = body.reports_to_id
+    elif dept:
+        target_boss = service.default_manager_id(p.db, dept, exclude_employee_id=emp.id)
+
+    if target_boss:
+        try:
+            service.set_manager(p.db, p, emp.id, target_boss, request, audit_it=False)
+        except Exception:
+            pass
 
     if u:
         direct.employee_approved(p.db, u.email, u.id, emp.full_name, comp_name)
@@ -411,6 +416,7 @@ class RoleInviteIn(Strict):
     email: EmailStr
     role_code: str = Field(min_length=2, max_length=50)
     company_id: int | None = None
+    department_id: int | None = None
 
 
 @router.get("/role-invites")
@@ -420,7 +426,18 @@ def list_role_invites(p: Principal = Depends(require("employee.manage"))):
 
 @router.post("/role-invites", status_code=201)
 def create_role_invite(body: RoleInviteIn, request: Request, p: Principal = Depends(require("employee.manage"))):
-    return invites.invite_dict(p.db, invites.create_invite(p.db, p, body.email, body.role_code, request, company_id=body.company_id))
+    return invites.invite_dict(
+        p.db,
+        invites.create_invite(
+            p.db,
+            p,
+            body.email,
+            body.role_code,
+            request,
+            company_id=body.company_id,
+            department_id=body.department_id,
+        ),
+    )
 
 
 @router.post("/role-invites/{invite_id}/resend")

@@ -21,7 +21,7 @@ type AuthState = {
   me: Me | null;
   /** Resolves to null when signed in (code switched off), or to the challenge when a code must be entered. */
   login: (email: string, password: string) => Promise<OtpChallenge | null>;
-  signup: (body: { full_name: string; email: string; password: string; company_id?: number }) => Promise<OtpChallenge | null>;
+  signup: (body: { full_name: string; email: string; password: string; company_id?: number; department_id?: number }) => Promise<OtpChallenge | null>;
   verifyOtp: (challenge: string, code: string) => Promise<void>;
   resendOtp: (challenge: string) => Promise<OtpChallenge>;
   logout: () => Promise<void>;

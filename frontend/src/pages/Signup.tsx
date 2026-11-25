@@ -6,15 +6,16 @@ import { OtpStep } from "@/components/OtpStep";
 import { useAuth, type OtpChallenge } from "@/lib/auth";
 import { api } from "@/lib/api";
 
-type PublicCompany = { id: number; name: string; code: string; logo_url: string | null };
+type PublicDepartment = { id: number; name: string; code: string };
+type PublicCompany = { id: number; name: string; code: string; logo_url: string | null; departments?: PublicDepartment[] };
 
-/** New employees create their own account, selecting their company. Leadership (CEO/Owner) must approve before access is granted. */
+/** New employees create their own account, selecting their company and department. Leadership (CEO/Owner) must approve before access is granted. */
 export function Signup() {
   const { status, signup } = useAuth();
   const nav = useNavigate();
   const [otp, setOtp] = useState<OtpChallenge | null>(null);
   const [companies, setCompanies] = useState<PublicCompany[]>([]);
-  const [f, setF] = useState({ full_name: "", email: "", password: "", company_id: "" });
+  const [f, setF] = useState({ full_name: "", email: "", password: "", company_id: "", department_id: "" });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -24,7 +25,13 @@ export function Signup() {
       .then((data) => {
         if (!ignore && data && data.length > 0) {
           setCompanies(data);
-          setF((prev) => (prev.company_id ? prev : { ...prev, company_id: String(data[0].id) }));
+          const firstComp = data[0];
+          const firstDept = firstComp.departments && firstComp.departments.length > 0 ? String(firstComp.departments[0].id) : "";
+          setF((prev) => ({
+            ...prev,
+            company_id: prev.company_id || String(firstComp.id),
+            department_id: prev.department_id || firstDept,
+          }));
         }
       })
       .catch((e) => console.error("Failed to load companies for signup:", e));
@@ -33,9 +40,21 @@ export function Signup() {
     };
   }, []);
 
+  const selectedCompany = companies.find((c) => String(c.id) === f.company_id) || companies[0];
+  const availableDepts = selectedCompany?.departments || [];
+
   if (status === "authed") return <Navigate to="/" replace />;
 
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
+    const val = e.target.value;
+    if (k === "company_id") {
+      const comp = companies.find((c) => String(c.id) === val);
+      const firstDept = comp?.departments && comp.departments.length > 0 ? String(comp.departments[0].id) : "";
+      setF({ ...f, company_id: val, department_id: firstDept });
+    } else {
+      setF({ ...f, [k]: val });
+    }
+  };
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -47,6 +66,7 @@ export function Signup() {
         email: f.email,
         password: f.password,
         company_id: f.company_id ? Number(f.company_id) : undefined,
+        department_id: f.department_id ? Number(f.department_id) : undefined,
       });
       if (ch) {
         setOtp(ch);
@@ -66,28 +86,50 @@ export function Signup() {
       subtitle={
         otp
           ? "Enter the code we emailed to confirm it is you."
-          : "Select your company to request access. Leadership will review and approve your account."
+          : "Select your company and department to request access. Leadership will review and approve your account."
       }
     >
       {otp ? (
         <OtpStep first={otp} onBack={() => setOtp(null)} onDone={() => nav("/", { replace: true })} />
       ) : (
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Company to join">
-            <Select
-              required
-              value={f.company_id}
-              onChange={set("company_id")}
-              className="w-full"
-            >
-              <option value="" disabled>Select your company…</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.code.toUpperCase()})
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Company to join">
+              <Select
+                required
+                value={f.company_id}
+                onChange={set("company_id")}
+                className="w-full"
+              >
+                <option value="" disabled>Select company…</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.code.toUpperCase()})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Department">
+              <Select
+                required
+                value={f.department_id}
+                onChange={set("department_id")}
+                className="w-full"
+                disabled={availableDepts.length === 0}
+              >
+                {availableDepts.length === 0 ? (
+                  <option value="">No departments available</option>
+                ) : (
+                  availableDepts.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))
+                )}
+              </Select>
+            </Field>
+          </div>
           <Field label="Full name">
             <Input required autoFocus autoComplete="name" value={f.full_name} onChange={set("full_name")} />
           </Field>

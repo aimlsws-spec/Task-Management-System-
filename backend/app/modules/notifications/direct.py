@@ -33,14 +33,38 @@ def _queue(db: Session, to_email: str, to_user_id: int | None, subject: str, bod
             row.last_error = f"{type(exc).__name__}: {exc}"[:1000]
 
 
-def invitation(db: Session, role_name: str, email: str, has_account: bool, user_id: int | None) -> None:
+def invitation(
+    db: Session,
+    role_name: str,
+    email: str,
+    has_account: bool,
+    user_id: int | None,
+    company_name: str | None = None,
+    dept_name: str | None = None,
+) -> None:
+    team_suffix = f" at {company_name}" if company_name else ""
+    dept_suffix = f" in the {dept_name} department" if dept_name else ""
     if has_account:
-        _queue(db, email, user_id, f"[SeaWind] You are now {role_name} in SeaWind Task Management",
-               f"The administrator made you {role_name}. Sign in again to use your new access.", "/login", "Sign in")
+        _queue(
+            db,
+            email,
+            user_id,
+            f"[SeaWind] You are now {role_name}{team_suffix} in SeaWind Task Management",
+            f"The administrator made you {role_name}{team_suffix}{dept_suffix}. Sign in again to use your new access.",
+            "/login",
+            "Sign in",
+        )
     else:
-        _queue(db, email, user_id, f"[SeaWind] You are invited to SeaWind Task Management as {role_name}",
-               f"The administrator invited you to join as {role_name}. Create your account with this email address ({email}) "
-               "and your role is set up automatically.", "/signup", "Create your account")
+        _queue(
+            db,
+            email,
+            user_id,
+            f"[SeaWind] You are invited to join{team_suffix} as {role_name}",
+            f"You have been invited to join{team_suffix} as {role_name}{dept_suffix}. "
+            f"Create your account with this email address ({email}) and your profile and access will be set up automatically.",
+            "/signup",
+            "Create your account",
+        )
 
 
 def added_by_admin(db: Session, email: str, user_id: int, full_name: str, role_names: list[str], dept_name: str) -> None:
@@ -70,20 +94,23 @@ def welcome(db: Session, email: str, user_id: int, full_name: str, role_name: st
     _queue(db, email, user_id, "[SeaWind] Welcome to SeaWind Task Management", body, "/login", "Sign in")
 
 
-def join_request(db: Session, email: str, user_id: int, applicant_name: str, applicant_email: str, company_name: str) -> None:
-    subject = f"[SeaWind] Join Request: {applicant_name} wants to join {company_name}"
+def join_request(db: Session, email: str, user_id: int, applicant_name: str, applicant_email: str, company_name: str, dept_name: str | None = None) -> None:
+    dept_str = f" ({dept_name})" if dept_name else ""
+    dept_body = f" in the {dept_name} department" if dept_name else ""
+    subject = f"[SeaWind] Join Request: {applicant_name} wants to join {company_name}{dept_str}"
     body = (
-        f"{applicant_name} ({applicant_email}) has signed up and requested permission to join the {company_name} team.\n\n"
+        f"{applicant_name} ({applicant_email}) has signed up and requested permission to join the {company_name} team{dept_body}.\n\n"
         "As an authorized CEO / Owner, please review the application and approve or decline access."
     )
     _queue(db, email, user_id, subject, body, "/employees", "Review Join Request")
 
 
-def join_request_submitted(db: Session, email: str, user_id: int, full_name: str, company_name: str) -> None:
+def join_request_submitted(db: Session, email: str, user_id: int, full_name: str, company_name: str, dept_name: str | None = None) -> None:
+    dept_body = f" in the {dept_name} department" if dept_name else ""
     subject = f"[SeaWind] Your request to join {company_name} has been received"
     body = (
         f"Hello {full_name},\n\n"
-        f"Thank you for registering. Your request to join {company_name} has been sent to company leadership (CEO & Owner) for approval.\n\n"
+        f"Thank you for registering. Your request to join {company_name}{dept_body} has been sent to company leadership (CEO & Owner) for approval.\n\n"
         "You will receive an email confirmation as soon as your account is approved."
     )
     _queue(db, email, user_id, subject, body, "/login", "Check Status")
