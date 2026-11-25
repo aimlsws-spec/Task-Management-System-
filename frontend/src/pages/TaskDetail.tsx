@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
-import { ACTION_LABEL, fmtDateTime, fmtDay, fmtDuration, OverdueBadge, PriorityChip, statusLabel, StatusBadge, type Task, type Workload } from "@/components/task-ui";
+import { ACTION_LABEL, fmtDateTime, fmtDay, fmtDuration, OverdueBadge, PriorityChip, PRIORITY_OPTIONS, statusLabel, StatusBadge, type Task, type Workload } from "@/components/task-ui";
 import { useEmployees } from "@/pages/Projects";
 import { api, ApiError, apiDownload, apiUpload } from "@/lib/api";
 import { ChangeDeadlinePanel, DeadlineCard, DelayGate, DelaySection, ExplainPanel, OverdueBanner, RequestExtensionPanel, ReviewDelayPanel } from "@/components/TaskAccountability";
@@ -47,10 +47,11 @@ export function TaskDetail() {
   const task = useQuery({ queryKey: ["task", id], queryFn: () => api<Task>(`/tasks/${id}`), refetchInterval: 5000 });
   const timeline = useQuery({ queryKey: ["task", id, "timeline"], queryFn: () => api<Event[]>(`/tasks/${id}/timeline`), refetchInterval: 5000 });
   const t = task.data;
+  const isOwner = Boolean(me?.roles.includes("owner") || (me as any)?.is_owner);
   const isLeadership = Boolean(me?.roles.includes("owner") || me?.roles.includes("ceo"));
   const can = (a: string) => !!t?.allowed_actions?.includes(a);
   const iAmAssignee = !!t && me?.employee?.id === t.assignee.id;
-  const people = useQuery({ queryKey: ["workload"], queryFn: () => api<Workload[]>("/workload"), enabled: can("reassign") });
+  const people = useQuery({ queryKey: ["workload", t?.company_id], queryFn: () => api<Workload[]>(`/workload${t?.company_id ? `?company_id=${t.company_id}` : ""}`), enabled: !isOwner && can("reassign") });
   const names = new Map<number, string>(people.data?.map((p) => [p.employee_id, p.full_name]) ?? []);
   if (t) { names.set(t.assignee.id, t.assignee.full_name); names.set(t.assigned_by.id, t.assigned_by.full_name); }
 
@@ -103,7 +104,7 @@ export function TaskDetail() {
             {can("verify") && <Button variant="outline" onClick={() => post("/verify", {})}>Verify</Button>}
             {can("revert") && <Button variant="danger" onClick={() => toggle("revert")}>Revert</Button>}
             {isLeadership && can("edit") && <Button variant="outline" onClick={() => toggle("edit")}>Edit</Button>}
-            {can("reassign") && <Button variant="outline" onClick={() => toggle("reassign")}>Transfer task</Button>}
+            {!isOwner && can("reassign") && <Button variant="outline" onClick={() => toggle("reassign")}>Transfer task</Button>}
             {can("submit_to_owner") && <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => toggle("submit_to_owner")}>Complete & Submit to Owner</Button>}
             {can("change_priority") && <Button variant="outline" onClick={() => toggle("priority")}>Priority</Button>}
             {isLeadership && can("cancel") && <Button variant="danger" onClick={() => toggle("cancel")}>Cancel task</Button>}
@@ -543,7 +544,7 @@ function PriorityPanel({ t, onSave, onClose }: { t: Task; onSave: (b: { priority
   return (
     <Panel title="Change priority">
       <form onSubmit={(e) => { e.preventDefault(); onSave({ priority: p, reason: reason || null }); }} className="grid gap-3 sm:grid-cols-[12rem_1fr_auto]">
-        <Field label="Priority"><Select value={p} onChange={(e) => setP(e.target.value)}>{["critical", "high", "medium", "low"].map((x) => <option key={x} value={x}>{x[0].toUpperCase() + x.slice(1)}</option>)}</Select></Field>
+        <Field label="Priority"><Select value={p} onChange={(e) => setP(e.target.value)}>{PRIORITY_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
         <Field label="Reason (optional)"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
         <Buttons cta="Save" onClose={onClose} disabled={p === t.priority} />
       </form>

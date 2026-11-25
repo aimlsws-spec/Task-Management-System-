@@ -108,7 +108,19 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge tone={s.tone}>{s.label}</Badge>;
 }
 
-const PRIORITY = { critical: { tone: "red", label: "Critical" }, high: { tone: "orange", label: "High" }, medium: { tone: "blue", label: "Medium" }, low: { tone: "grey", label: "Low" } } as const;
+export const PRIORITY_OPTIONS = [
+  { value: "critical", label: "🔴 Critical" },
+  { value: "high", label: "🟠 High" },
+  { value: "medium", label: "🟡 Medium" },
+  { value: "low", label: "🟢 Low" },
+] as const;
+
+export const PRIORITY = {
+  critical: { tone: "red" as const, label: "🔴 Critical" },
+  high: { tone: "orange" as const, label: "🟠 High" },
+  medium: { tone: "blue" as const, label: "🟡 Medium" },
+  low: { tone: "grey" as const, label: "🟢 Low" },
+} as const;
 export function PriorityChip({ priority }: { priority: string }) {
   const p = PRIORITY[priority as keyof typeof PRIORITY] ?? PRIORITY.medium;
   const Icon = priority === "critical" ? AlertOctagon : priority === "high" ? AlertTriangle : priority === "low" ? ArrowDown : Minus;

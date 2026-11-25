@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MailCheck, Network, UserPlus } from "lucide-react";
 import { useState, useMemo, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
+import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, PasswordInput, Select, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { Can, useAuth } from "@/lib/auth";
 
@@ -269,7 +269,7 @@ export function CreateEmployee({ depts, employees, companies, isCeo, onDone }: {
           </Select>
         </Field>
         <Field label="Employee ID / Code (optional)"><Input value={f.employee_code} onChange={set("employee_code")} placeholder="Leave blank for auto-generation" /></Field>
-        <Field label="Temporary password (must change at first login)"><Input type="password" required minLength={10} value={f.temp_password} onChange={set("temp_password")} placeholder="At least 10 chars" /></Field>
+        <Field label="Temporary password (must change at first login)"><PasswordInput required minLength={10} value={f.temp_password} onChange={set("temp_password")} placeholder="At least 10 chars" /></Field>
         <div className="flex items-end gap-2">
           <Button type="submit" disabled={m.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">Create Employee</Button>
         </div>

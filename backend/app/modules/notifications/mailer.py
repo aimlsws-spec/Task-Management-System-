@@ -7,6 +7,7 @@ import smtplib
 from datetime import datetime, time, timedelta
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid, parseaddr
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,14 +40,37 @@ def real_mail_server() -> bool:
 
 # Emails people act on must not wait for the next working day: assigned, reminders, overdue, delay reasons, new sign-ups.
 IMMEDIATE_EVENTS = {
-    "TASK_CREATED", "TASK_REASSIGNED", "TASK_REMINDER_24H", "TASK_REMINDER_2H", "TASK_OVERDUE",
+    "TASK_CREATED", "TASK_REASSIGNED", "TASK_REMINDER_24H", "TASK_REMINDER_3H", "TASK_REMINDER_2H", "TASK_OVERDUE",
     "TASK_ESCALATION_1", "TASK_ESCALATION_2", "TASK_ESCALATION_3",
     "DELAY_EXPLANATION_SUBMITTED", "DELAY_REVIEWED", "DELAY_RELEASED", "EXTENSION_DECIDED", "EMPLOYEE_SIGNED_UP",
     "PROJECT_HEAD_NAMED", "PROJECT_TASK_ASSIGNED", "TASK_HEAD_REVIEW_NEEDED", "TASK_HEAD_APPROVED", "TASK_LEADERSHIP_REVIEW_NEEDED",
     "PROJECT_READY_FOR_REVIEW", "PROJECT_COMPLETED", "PROJECT_QA_NAMED", "TASK_QA_ASSIGNED", "TASK_QA_REVIEW_NEEDED", "TASK_QA_APPROVED",
     "TASK_REVIEW_REJECTED", "TASK_REVIEW_APPROVED", "COMMENT_ADDED", "QUESTION_ASKED", "BLOCKER_RAISED", "BLOCKER_ESCALATED", "BLOCKER_REPLIED", "BLOCKER_RESOLVED",
-    "PROJECT_MEMBER_ADDED", "PROJECT_CREATED", "PROJECT_DEADLINE_TOMORROW", "PROJECT_DEADLINE_TODAY", "PROJECT_OVERDUE",
+    "PROJECT_MEMBER_ADDED", "PROJECT_CREATED", "PROJECT_DEADLINE_TOMORROW", "PROJECT_DEADLINE_TODAY", "PROJECT_DEADLINE_3H", "PROJECT_OVERDUE",
 }  # fmt: skip
+
+
+def attach_logo(msg: EmailMessage) -> None:
+    """Attach the SeaWind logo inline as cid:seawind_logo so mail clients display it without broken image links."""
+    html_part = msg.get_body("html")
+    if html_part is None:
+        return
+    try:
+        content = html_part.get_content()
+    except Exception:
+        content = ""
+    if "cid:seawind_logo" not in content:
+        return
+
+    static_logo = Path(__file__).resolve().parents[2] / "static" / "seawind-logo.png"
+    if not static_logo.exists():
+        static_logo = Path(__file__).resolve().parents[4] / "frontend" / "public" / "seawind-logo.png"
+    if static_logo.exists():
+        try:
+            data = static_logo.read_bytes()
+            html_part.add_related(data, "image", "png", cid="<seawind_logo>", filename="seawind-logo.png")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not attach seawind-logo.png to email: %s", exc)
 
 
 def _goes_now(db: Session, row: EmailLog) -> bool:
@@ -69,6 +93,7 @@ def build_message(row: EmailLog) -> EmailMessage:
         msg["Importance"] = "high"
     msg.set_content(row.body_text)
     msg.add_alternative(row.body_html, subtype="html")
+    attach_logo(msg)
     return msg
 
 

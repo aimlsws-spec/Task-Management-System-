@@ -34,8 +34,8 @@ r("PROJECT_MEMBER_ADDED", "TARGET_USER", BOTH)
 # a new project: the CEO and Owner are told (the people on it each get their own mail with the deadline: head named, QA named, added)
 r("PROJECT_CREATED", "ROLE:ceo", BOTH)
 r("PROJECT_CREATED", "ROLE:owner", BOTH)
-# project deadline: the people on the project the day before and on the day; everyone incl. CEO/Owner once it is overdue
-for ev in ("PROJECT_DEADLINE_TOMORROW", "PROJECT_DEADLINE_TODAY", "PROJECT_OVERDUE"):
+# project deadline: the people on the project the day before, on the day, 3 hours before EOD, and after
+for ev in ("PROJECT_DEADLINE_TOMORROW", "PROJECT_DEADLINE_TODAY", "PROJECT_DEADLINE_3H", "PROJECT_OVERDUE"):
     r(ev, "PROJECT_PEOPLE", BOTH, mandatory=True, urgent=ev != "PROJECT_DEADLINE_TOMORROW")
 r("PROJECT_OVERDUE", "ROLE:ceo", BOTH, mandatory=True, urgent=True)
 r("PROJECT_OVERDUE", "ROLE:owner", BOTH, mandatory=True, urgent=True)
@@ -123,6 +123,7 @@ r("DELAY_EXPLANATION_SUBMITTED", "ASSIGNER", IN, cond={"assigner_role": ["manage
 r("DELAY_REVIEWED", "ASSIGNEE", mandatory=True)
 # --- automatic reminders and escalation
 r("TASK_REMINDER_24H", "ASSIGNEE", mandatory=True)
+r("TASK_REMINDER_3H", "ASSIGNEE", mandatory=True, urgent=True)
 r("TASK_REMINDER_2H", "ASSIGNEE", mandatory=True, urgent=True)
 for sel in ("ASSIGNEE", "DIRECT_MANAGER", "DEPARTMENT_HEAD", "ANCESTOR_ROLE:manager", "ROLE:ceo", "ROLE:owner"):
     r("TASK_OVERDUE", sel, mandatory=True, urgent=True)
@@ -194,6 +195,7 @@ PRE = "assigned,acknowledged,in_progress,blocked,reopened"  # not on hold, not w
 # (code, kind, minutes, working_days, event, statuses, order)
 REMINDERS = [
     ("before_24h", "before", 1440, 0, "TASK_REMINDER_24H", PRE, 10),
+    ("before_3h", "before", 180, 0, "TASK_REMINDER_3H", PRE, 15),
     ("before_2h", "before", 120, 0, "TASK_REMINDER_2H", PRE, 20),
     ("at_due", "at_due", 0, 0, "TASK_OVERDUE", PRE, 30),
     ("after_1d", "after_working_days", 0, 1, "TASK_ESCALATION_1", PRE, 40),
@@ -202,7 +204,7 @@ REMINDERS = [
 ]
 
 
-RULES_VERSION = 5  # 2: delay explanations reach CEO/Owner only after approval; head-to-head loop; head ownership
+RULES_VERSION = 6  # 2: delay explanations reach CEO/Owner only after approval; head-to-head loop; head ownership
 REWRITTEN = {"DELAY_EXPLANATION_SUBMITTED", "PROJECT_MEMBER_ADDED"}  # rule sets replaced wholesale when upgrading an older database
 
 

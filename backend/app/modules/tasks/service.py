@@ -153,11 +153,18 @@ def get_visible_task(db: Session, p: Principal, task_id: int) -> Task:
 
 
 def can_manage(p: Principal, t: Task, perm: str) -> bool:
-    """Holds `perm` and the task belongs to someone in that permission's scope, or I created it."""
+    """Holds `perm` and the task belongs to someone in that permission's scope, or I created it, or I am responsible head/subhead."""
     if not p.has(perm):
         return False
     me = p.employee.id if p.employee else -1
-    return t.assigned_by_id == me or p.can_see(perm, t.assignee_id)
+    if t.assigned_by_id == me or p.can_see(perm, t.assignee_id):
+        return True
+    if me > 0:
+        if t.head_employee_id == me or getattr(t, "sub_head_employee_id", None) == me:
+            return True
+        if p.db.scalar(select(TaskHead.id).where(TaskHead.task_id == t.id, TaskHead.employee_id == me)):
+            return True
+    return False
 
 
 def is_peer_head(db: Session, p: Principal, assignee: Employee) -> bool:
@@ -313,7 +320,8 @@ def allowed_actions(p: Principal, t: Task) -> list[str]:
     if t.status in OPEN_STATUSES:
         if is_leadership(p) and can_manage(p, t, "task.edit"):
             acts.append("edit")
-        if can_manage(p, t, "task.reassign"):
+        is_owner = "owner" in p.roles or getattr(p, "is_owner", False)
+        if not is_owner and can_manage(p, t, "task.reassign"):
             acts.append("reassign")
         if can_manage(p, t, "task.priority.change"):
             acts.append("change_priority")
@@ -580,6 +588,8 @@ def update_task(db: Session, p: Principal, t: Task, d: dict, request: Request) -
 
 
 def reassign_task(db: Session, p: Principal, t: Task, new_assignee_id: int, reason: str | None, request: Request) -> None:
+    if "owner" in p.roles or getattr(p, "is_owner", False):
+        raise Forbidden("Owners do not transfer tasks")
     if not can_manage(p, t, "task.reassign"):
         raise Forbidden()
     if t.status not in OPEN_STATUSES:

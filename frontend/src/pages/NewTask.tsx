@@ -3,7 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
-import { fmtDay, LevelBadge, LoadBar, OverdueBadge, PriorityChip, PriorityCounts, StatusBadge, type Task, type TaskPage, type Workload } from "@/components/task-ui";
+import { fmtDay, LevelBadge, LoadBar, OverdueBadge, PriorityChip, PriorityCounts, PRIORITY_OPTIONS, StatusBadge, type Task, type TaskPage, type Workload } from "@/components/task-ui";
 import { AiAssistModal } from "@/components/AiAssistModal";
 import { useEmployees } from "@/pages/Projects";
 import { api } from "@/lib/api";
@@ -205,7 +205,7 @@ export function NewTask() {
               <div className="sm:col-span-2"><Field label="Special Note (optional)"><textarea rows={2} value={f.instructions} onChange={set("instructions")} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-2 focus:outline-indigo-200" placeholder="Special notes or instructions..." /></Field></div>
               <Field label="Priority">
                 <Select value={f.priority} onChange={set("priority")}>
-                  {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+                  {PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </Select>
               </Field>
               <Field label={f.project_id ? "Deadline date (optional — inherits project deadline)" : "Deadline date"}><Input required={!f.project_id} type="date" value={f.due_date} onChange={set("due_date")} /></Field>

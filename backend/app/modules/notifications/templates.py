@@ -16,7 +16,7 @@ EVENT_LABELS: dict[str, str] = {
     "TASK_VERIFIED": "A completion is verified", "TASK_REVERTED": "Completed work is reverted", "TASK_CANCELLED": "A task is cancelled",
     "TASK_DEADLINE_CHANGED": "A deadline changes", "EXTENSION_REQUESTED": "More time is requested", "EXTENSION_DECIDED": "An extension request is decided",
     "DELAY_EXPLANATION_SUBMITTED": "A delay explanation is submitted", "DELAY_REVIEWED": "A delay explanation is reviewed",
-    "TASK_REMINDER_24H": "Deadline in 24 hours", "TASK_REMINDER_2H": "Deadline in 2 hours", "TASK_OVERDUE": "A task becomes overdue",
+    "TASK_REMINDER_24H": "Deadline in 24 hours", "TASK_REMINDER_3H": "Deadline in 3 hours (before EOD)", "TASK_REMINDER_2H": "Deadline in 2 hours", "TASK_OVERDUE": "A task becomes overdue",
     "TASK_ESCALATION_1": "Overdue: 1 working day", "TASK_ESCALATION_2": "Overdue: 3 working days (escalation)",
     "TASK_ESCALATION_3": "Overdue: 7 working days (escalation)", "TIMER_CHECKIN": "'Still working?' timer check-in",
     "TIMER_AUTO_CLOSED": "A timer was stopped automatically", "TIME_CORRECTION_REQUESTED": "Missing time is requested",
@@ -31,7 +31,7 @@ EVENT_LABELS: dict[str, str] = {
     "TASK_HEAD_REVIEW_NEEDED": "Finished work needs the project head's approval", "TASK_HEAD_APPROVED": "The project head approved your work",
     "TASK_LEADERSHIP_REVIEW_NEEDED": "Finished project work is ready for CEO/Owner review", "PROJECT_READY_FOR_REVIEW": "A project is ready to be completed",
     "PROJECT_COMPLETED": "A project is completed", "PROJECT_CREATED": "A project is created", "PROJECT_DEADLINE_TOMORROW": "A project is due tomorrow",
-    "PROJECT_DEADLINE_TODAY": "A project is due today", "PROJECT_OVERDUE": "A project is overdue", "PROJECT_QA_NAMED": "You are named QA of a project",
+    "PROJECT_DEADLINE_TODAY": "A project is due today", "PROJECT_DEADLINE_3H": "Project due in 3 hours (before EOD)", "PROJECT_OVERDUE": "A project is overdue", "PROJECT_QA_NAMED": "You are named QA of a project",
     "TASK_QA_ASSIGNED": "You are the QA of a task", "TASK_QA_REVIEW_NEEDED": "Finished work needs QA testing",
     "TASK_QA_APPROVED": "QA passed the work and confirmed the bugs are solved",
     "DELAY_RELEASED": "A delay explanation is approved and shared with leadership", "TASK_OWNERSHIP_TAKEN": "A Department Head takes ownership of a task",
@@ -89,6 +89,7 @@ def render(event_type: str, c: SimpleNamespace) -> tuple[str, str]:
         "PROJECT_CREATED": (f"New project: {_c(a, 'project')}", f"{who} created the project {_c(a, 'project')}.{_pfacts(a)}\n\nHead: {_c(a, 'head', 'none')}\nQA: {_c(a, 'qa', 'none')}\nTeam: {_c(a, 'team', 'not chosen yet')}"),
         "PROJECT_DEADLINE_TOMORROW": (f"Project due tomorrow: {_c(a, 'project')}", f"The deadline of the project {_c(a, 'project')} is tomorrow.{_pfacts(a)}"),
         "PROJECT_DEADLINE_TODAY": (f"Project due today: {_c(a, 'project')}", f"The deadline of the project {_c(a, 'project')} is today.{_pfacts(a)}"),
+        "PROJECT_DEADLINE_3H": (f"Project due in 3 hours: {_c(a, 'project')}", f"The deadline of the project {_c(a, 'project')} is in 3 hours (today at 6:30 PM / EOD). Please ensure all pending tasks are completed and submitted.{_pfacts(a)}"),
         "PROJECT_OVERDUE": (f"Project overdue: {_c(a, 'project')}", f"The deadline of the project {_c(a, 'project')} has passed and it is not completed.{_pfacts(a)}"),
         "PROJECT_QA_NAMED": (f"You are QA for the project {_c(a, 'project')}", f"{who} made you the QA of {_c(a, 'project')}. You will test finished work and report bugs before it goes to the head and the CEO/Owner.{_pfacts(a)}"),
         "TASK_QA_ASSIGNED": (f"You are QA for: {c.title}", f"{who} added you as the QA of {t} (assigned to {c.assignee}){_in(a)}. When {c.assignee} finishes it you will be asked to test it."),
@@ -127,6 +128,7 @@ def render(event_type: str, c: SimpleNamespace) -> tuple[str, str]:
         "TASK_OWNERSHIP_TAKEN": (f"Head took ownership: {c.title}", f"{who} took responsibility for {t}. {_c(a, 'note')}".strip()),
         "DELAY_REVIEWED": (f"Your delay explanation was reviewed: {c.title}", f"{who}: {_c(a, 'decision').replace('_', ' ')}. {_c(a, 'comment')}".strip()),
         "TASK_REMINDER_24H": (f"Due in 24 hours: {c.title}", f"{t} is due {c.due}. Please complete it before the deadline."),
+        "TASK_REMINDER_3H": (f"Due in 3 hours: {c.title}", f"{t} is due {c.due} (in 3 hours / 6:30 PM EOD) and is still open. Please finish and submit your work before the deadline."),
         "TASK_REMINDER_2H": (f"Due in 2 hours: {c.title}", f"{t} is due {c.due} and is still open."),
         "TASK_OVERDUE": (f"Overdue: {c.title}", f"{t} (assigned to {c.assignee}) passed its deadline of {c.due}. A reason for the delay is required."),
         "TASK_ESCALATION_1": (f"Still overdue: {c.title}", f"{t} is one working day past its deadline ({c.due}). Please complete it or explain the delay."),
@@ -161,7 +163,7 @@ def email_bodies(title: str, body: str, link: str, urgent: bool, cta: str = "Ope
     except Exception:
         base_url = "https://tksf.seawind.co.in"
     base_display = base_url.replace("https://", "").replace("http://", "")
-    logo_url = f"{base_url}/seawind-logo.png"
+    logo_url = "cid:seawind_logo"
 
     text = f"{title}\n\n{body}\n\n{cta}: {link}\n\n— SeaWind Task Management\nRegeneration of IT Services\n{base_url}"
     urgent_banner = (

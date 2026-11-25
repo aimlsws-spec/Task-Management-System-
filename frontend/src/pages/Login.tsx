@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
-import { Button, ErrorNote, Field, Input } from "@/components/ui";
+import { Button, ErrorNote, Field, Input, PasswordInput } from "@/components/ui";
 import { OtpStep } from "@/components/OtpStep";
 import { useAuth, type OtpChallenge } from "@/lib/auth";
 
@@ -46,7 +46,7 @@ export function Login() {
           <Input id="email" name="email" type="email" autoComplete="username" required autoFocus={!email} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@seawindsolution.com" />
         </Field>
         <Field label="Password">
-          <Input id="password" name="password" type="password" autoComplete="current-password" required autoFocus={!!email} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordInput id="password" name="password" autoComplete="current-password" required autoFocus={!!email} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">

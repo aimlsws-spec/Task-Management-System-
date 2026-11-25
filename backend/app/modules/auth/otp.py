@@ -45,7 +45,7 @@ def _send(user: User, code: str, minutes: int) -> None:
     s = get_settings()
     base_url = s.app_base_url.rstrip("/")
     base_url_display = base_url.replace("https://", "").replace("http://", "")
-    logo_url = f"{base_url}/seawind-logo.png"
+    logo_url = "cid:seawind_logo"
 
     msg = EmailMessage()
     msg["From"] = s.email_from
@@ -158,6 +158,7 @@ def _send(user: User, code: str, minutes: int) -> None:
 </body>
 </html>'''
     msg.add_alternative(html, subtype="html")
+    mailer.attach_logo(msg)
     if mailer.real_mail_server() and mailer.is_reserved_recipient(user.email):
         raise AppError("EMAIL_UNDELIVERABLE", "The email address on this account cannot receive mail. Ask the administrator to fix it.", 422)
     try:

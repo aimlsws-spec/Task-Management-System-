@@ -58,7 +58,9 @@ def scan(db: Session, now: datetime | None = None) -> dict:
                 continue  # on hold / under review / finished: no reminders
             if rule.kind == "before":
                 moment = t.due_at - timedelta(minutes=rule.minutes)
-                due_now = moment <= now < t.due_at and moment >= started
+                is_short = rule.minutes <= 180
+                valid_start = moment >= started or (is_short and now >= started + timedelta(minutes=15))
+                due_now = moment <= now < t.due_at and valid_start
             elif rule.kind == "at_due":
                 due_now = late_after(t.due_at) <= now  # "overdue" starts after the grace period
             else:  # after N working days (Sundays, off Saturdays and holidays do not count)

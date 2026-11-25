@@ -3,7 +3,7 @@ import { FolderKanban, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
-import { PriorityChip } from "@/components/task-ui";
+import { PriorityChip, PRIORITY_OPTIONS } from "@/components/task-ui";
 import { AiAssistModal } from "@/components/AiAssistModal";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -204,7 +204,7 @@ function CreateProject({ onDone, initialCompanyId }: { onDone: () => void; initi
           <Field label="Special Note (optional)"><textarea rows={2} value={f.special_note} onChange={set("special_note")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" placeholder="Special note or instructions..." /></Field>
           <Field label="Priority">
             <Select value={f.priority} onChange={set("priority")}>
-              {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+              {PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </Select>
           </Field>
           <Field label="Expected result: what should exist when it is finished?"><textarea rows={3} value={f.expected_result} onChange={set("expected_result")} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-card focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100" /></Field>

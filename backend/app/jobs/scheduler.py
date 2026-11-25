@@ -57,18 +57,28 @@ def _alert_unconfirmed(db: Session, now: datetime) -> int:
 
 def project_deadlines(db: Session, now: datetime) -> int:
     """Tell everyone on a project (and, when overdue, the CEO/Owner) the day before, on, and after its deadline. Once each."""
-    from datetime import timedelta
+    from datetime import time, timedelta
 
     from sqlalchemy import select
 
     from app.modules.tasks.models import Project
     from app.modules.workcal import service as cal
 
-    today = cal.utc_to_local(db, now).date()
+    local_dt = cal.utc_to_local(db, now)
+    today = local_dt.date()
+    local_time = local_dt.time()
     n = 0
     for pr in db.scalars(select(Project).where(Project.status == "active", Project.ends_on.isnot(None), Project.ends_on >= today - timedelta(days=7),
                                                Project.ends_on <= today + timedelta(days=1))):
-        kind = "PROJECT_DEADLINE_TOMORROW" if pr.ends_on > today else "PROJECT_DEADLINE_TODAY" if pr.ends_on == today else "PROJECT_OVERDUE"
+        if pr.ends_on > today:
+            kind = "PROJECT_DEADLINE_TOMORROW"
+        elif pr.ends_on < today:
+            kind = "PROJECT_OVERDUE"
+        else:
+            if local_time >= time(15, 30) and local_time < time(18, 30):
+                n += emit(db, "PROJECT_DEADLINE_3H", None, None, {"after": {"project_id": pr.id, "project": pr.name, "ends_on": pr.ends_on.isoformat()}},
+                          dedupe_key=f"PROJECT_DEADLINE_3H:{pr.id}:{pr.ends_on.isoformat()}")
+            kind = "PROJECT_DEADLINE_TODAY"
         n += emit(db, kind, None, None, {"after": {"project_id": pr.id, "project": pr.name, "ends_on": pr.ends_on.isoformat()}},
                   dedupe_key=f"{kind}:{pr.id}:{pr.ends_on.isoformat()}")  # fmt: skip
     return n

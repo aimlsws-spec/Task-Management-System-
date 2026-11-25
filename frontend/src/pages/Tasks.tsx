@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, Input, PageHeader, Select, Spinner } from "@/components/ui";
-import { EscalationBadge, fmtDay, OverdueBadge, PriorityChip, STATUS_OPTIONS, StatusBadge, type TaskPage, type Workload } from "@/components/task-ui";
+import { EscalationBadge, fmtDay, OverdueBadge, PriorityChip, PRIORITY_OPTIONS, STATUS_OPTIONS, StatusBadge, type TaskPage, type Workload } from "@/components/task-ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -58,7 +58,7 @@ export function Tasks() {
         </Select>
         <Select className="sm:max-w-36" value={get("priority")} onChange={(e) => set("priority", e.target.value)}>
           <option value="">All priorities</option>
-          {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+          {PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
         </Select>
         {isAssigner && (
           <Select className="sm:max-w-48" value={get("assignee_id")} onChange={(e) => set("assignee_id", e.target.value)}>

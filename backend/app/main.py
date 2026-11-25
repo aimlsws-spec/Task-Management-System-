@@ -59,13 +59,20 @@ def create_app() -> FastAPI:
         path = request.url.path
         if path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
-        if (s.mail_after_request and request.method in ("POST", "PUT", "PATCH", "DELETE") and response.status_code < 400
-                and path.startswith("/api/v1") and not path.startswith(("/api/v1/auth", "/api/v1/notifications"))):
-            from starlette.background import BackgroundTask
+        if s.mail_after_request and response.status_code < 400 and path.startswith("/api/v1"):
+            should_kick = False
+            if request.method in ("POST", "PUT", "PATCH", "DELETE") and not path.startswith(("/api/v1/auth", "/api/v1/notifications")):
+                should_kick = True
+            elif request.method == "GET" and not path.startswith("/api/v1/auth"):
+                from app.jobs.kick import should_scan
+                if should_scan():
+                    should_kick = True
+            if should_kick:
+                from starlette.background import BackgroundTask
 
-            from app.jobs.kick import kick
+                from app.jobs.kick import kick
 
-            response.background = BackgroundTask(kick)  # ADR 007: mail goes out now, after the response, not at the next cron run
+                response.background = BackgroundTask(kick)
         return response
 
     api = APIRouter(prefix="/api/v1")

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
-import { Button, ErrorNote, Field, Input } from "@/components/ui";
+import { Button, ErrorNote, Field, Input, PasswordInput } from "@/components/ui";
 import { OtpStep } from "@/components/OtpStep";
 import { useAuth, type OtpChallenge } from "@/lib/auth";
 
@@ -36,7 +36,7 @@ export function Signup() {
         <Field label="Full name"><Input required autoFocus autoComplete="name" value={f.full_name} onChange={set("full_name")} /></Field>
         <Field label="Work email"><Input type="email" required autoComplete="username" value={f.email} onChange={set("email")} /></Field>
         <Field label="Password (10+ chars, upper, lower, digit)">
-          <Input type="password" required minLength={10} autoComplete="new-password" value={f.password} onChange={set("password")} />
+          <PasswordInput required minLength={10} autoComplete="new-password" value={f.password} onChange={set("password")} />
         </Field>
         <ErrorNote error={error} />
         <Button type="submit" className="w-full py-2.5" disabled={busy}>{busy ? "Creating account…" : "Create account"}</Button>

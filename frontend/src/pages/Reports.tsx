@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { useState } from "react";
 import { Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
+import { PRIORITY_OPTIONS } from "@/components/task-ui";
 import { api, apiDownload } from "@/lib/api";
 
 type Report = { name: string; title: string; columns: string[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> };
@@ -35,7 +36,10 @@ export function ReportsPage() {
           <Field label="From"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label="To"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           <Field label="Priority">
-            <Select value={priority} onChange={(e) => setPriority(e.target.value)}><option value="">Any</option>{["critical", "high", "medium", "low"].map((p) => <option key={p}>{p}</option>)}</Select>
+            <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="">Any</option>
+              {PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </Select>
           </Field>
           <div className="flex items-end gap-2">
             <Button variant="outline" onClick={() => dl("csv")}><Download size={14} aria-hidden /> CSV</Button>

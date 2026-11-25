@@ -3,7 +3,7 @@ import { CheckCircle2, Plus } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
-import { fmtDateTime, fmtDay, OverdueBadge, PriorityChip, StatusBadge, type Workload } from "@/components/task-ui";
+import { fmtDateTime, fmtDay, OverdueBadge, PriorityChip, PRIORITY_OPTIONS, StatusBadge, type Workload } from "@/components/task-ui";
 import { STATUS_TONE, useEmployees, type Person, type ProjectSummary } from "@/pages/Projects";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -491,7 +491,7 @@ function AssignForm({ d, pointId, onDone }: { d: Detail; pointId: number; onDone
           {options.map((p) => <option key={p.employee_id} value={p.employee_id}>{p.full_name}</option>)}
         </Select>
       </Field>
-      <Field label="Priority"><Select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>{["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}</Select></Field>
+      <Field label="Priority"><Select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>{PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</Select></Field>
       <Field label="Deadline (optional)"><Input type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} placeholder="Inherits project deadline" /></Field>
       <div className="sm:col-span-3">
         <Field label="Special Note (optional)"><Input value={f.special_note} onChange={(e) => setF({ ...f, special_note: e.target.value })} placeholder="Special note or instructions..." /></Field>

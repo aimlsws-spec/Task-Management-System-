@@ -8,6 +8,10 @@ log = logging.getLogger("tms.kick")
 _last_scan = float("-inf")
 
 
+def should_scan() -> bool:
+    return time.monotonic() - _last_scan >= 60
+
+
 def kick() -> None:
     global _last_scan
     try:

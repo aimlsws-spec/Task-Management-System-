@@ -21,7 +21,7 @@ from app.modules.tasks.models import TERMINAL, Task
 log = logging.getLogger("tms.notifications")
 MAX_ATTEMPTS = 5
 # Events produced by the reminder scanner: they describe the deadline as it WAS when scheduled.
-SCHEDULED = {"TASK_REMINDER_24H", "TASK_REMINDER_2H", "TASK_OVERDUE", "TASK_ESCALATION_1", "TASK_ESCALATION_2", "TASK_ESCALATION_3"}
+SCHEDULED = {"TASK_REMINDER_24H", "TASK_REMINDER_3H", "TASK_REMINDER_2H", "TASK_OVERDUE", "TASK_ESCALATION_1", "TASK_ESCALATION_2", "TASK_ESCALATION_3"}
 
 
 def record_failure(db: Session, job: str, error: str, context: dict | None = None) -> None:

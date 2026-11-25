@@ -206,7 +206,10 @@ def test_only_the_assignee_can_acknowledge(client, as_user, seeded):
 def test_allowed_actions_depend_on_who_asks(client, as_user, seeded):
     t = make(client, as_user, seeded)
     mgmt = client.get(f"{API}/tasks/{t['id']}", headers=as_user("owner")).json()["allowed_actions"]
-    assert set(mgmt) == {"edit", "reassign", "change_priority", "cancel", "change_deadline"}
+    assert set(mgmt) == {"edit", "change_priority", "cancel", "change_deadline"}
+    assert "reassign" not in mgmt  # Owners do not transfer tasks
+    devhead_acts = client.get(f"{API}/tasks/{t['id']}", headers=as_user("devhead")).json()["allowed_actions"]
+    assert "reassign" in devhead_acts  # Department Head can transfer tasks
     assert client.get(f"{API}/tasks/{t['id']}", headers=as_user("hr1")).status_code == 404
 
 

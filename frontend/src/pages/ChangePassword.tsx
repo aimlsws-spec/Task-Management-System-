@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
-import { Button, ErrorNote, Field, Input } from "@/components/ui";
+import { Button, ErrorNote, Field, PasswordInput } from "@/components/ui";
 import { api, setAccessToken, setRefreshToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -35,10 +35,10 @@ export function ChangePassword() {
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Current password">
-          <Input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
+          <PasswordInput autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
         </Field>
         <Field label="New password (10+ chars, upper, lower, digit)">
-          <Input type="password" autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} />
+          <PasswordInput autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} />
         </Field>
         <ErrorNote error={error} />
         <Button type="submit" className="w-full py-2.5">Change password</Button>
